@@ -1,0 +1,59 @@
+/* PIKA Custom Styles */
+/* Most styling is handled by Tailwind CSS via CDN */
+
+/* Messages container */
+#messages {
+    scrollbar-width: thin;
+    scrollbar-color: #374151 transparent;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* Custom scrollbar for messages container */
+#messages::-webkit-scrollbar {
+    width: 6px;
+}
+
+#messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#messages::-webkit-scrollbar-thumb {
+    background: #374151;
+    border-radius: 3px;
+}
+
+#messages::-webkit-scrollbar-thumb:hover {
+    background: #4B5563;
+}
+
+/* Messages panel styling */
+#messages-panel {
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.6) 50%, transparent 100%);
+}
+
+/* Smooth transitions */
+* {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Focus styles */
+input:focus,
+button:focus {
+    outline: none;
+}
+
+/* Animation for processing state */
+@keyframes processing {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.processing {
+    animation: processing 1.5s ease-in-out infinite;
+}

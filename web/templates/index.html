@@ -1,0 +1,225 @@
+{{define "content"}}
+<div id="app" class="h-full grid-bg text-white relative">
+    <!-- Ambient corner decorations -->
+    <div class="absolute top-0 left-0 w-32 h-32 border-l-2 border-t-2 border-pika-400/20"></div>
+    <div class="absolute top-0 right-0 w-32 h-32 border-r-2 border-t-2 border-pika-400/20"></div>
+    <div class="absolute bottom-0 left-0 w-32 h-32 border-l-2 border-b-2 border-pika-400/20"></div>
+    <div class="absolute bottom-0 right-0 w-32 h-32 border-r-2 border-b-2 border-pika-400/20"></div>
+
+    <!-- Top status bar -->
+    <header class="absolute top-0 left-0 right-0 z-20 px-8 py-4">
+        <div class="flex items-center justify-between max-w-6xl mx-auto">
+            <!-- Logo -->
+            <div class="flex items-center gap-3">
+                <div class="font-orbitron text-2xl font-bold text-pika-400 tracking-wider">PIKA</div>
+                <div class="text-xs text-gray-500 uppercase tracking-widest">Personal Intelligence</div>
+            </div>
+
+            <!-- Status -->
+            <div class="flex items-center gap-6">
+                <div class="flex items-center gap-2">
+                    <div id="connection-dot" class="w-2 h-2 rounded-full bg-gray-500"></div>
+                    <span id="status-text" class="text-sm text-gray-400 font-mono uppercase tracking-wider">Initializing</span>
+                </div>
+                <div class="text-xs text-gray-600 font-mono" id="current-time"></div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main centered interface -->
+    <main class="h-full flex items-center justify-center">
+        <div class="relative">
+            <!-- Outer rotating ring -->
+            <div class="absolute inset-0 flex items-center justify-center">
+                <svg class="w-[500px] h-[500px] animate-spin-slow" viewBox="0 0 200 200">
+                    <circle cx="100" cy="100" r="95" fill="none" stroke="rgba(251, 191, 36, 0.1)" stroke-width="0.5"/>
+                    <circle cx="100" cy="100" r="95" fill="none" stroke="rgba(251, 191, 36, 0.3)" stroke-width="1" class="arc-segment" stroke-dasharray="40 60"/>
+                </svg>
+            </div>
+
+            <!-- Middle rotating ring (opposite direction) -->
+            <div class="absolute inset-0 flex items-center justify-center">
+                <svg class="w-[400px] h-[400px] animate-spin-slower" viewBox="0 0 200 200">
+                    <circle cx="100" cy="100" r="95" fill="none" stroke="rgba(251, 191, 36, 0.15)" stroke-width="0.5"/>
+                    <circle cx="100" cy="100" r="95" fill="none" stroke="rgba(251, 191, 36, 0.4)" stroke-width="1.5" class="arc-segment" stroke-dasharray="30 40"/>
+                </svg>
+            </div>
+
+            <!-- Inner static ring -->
+            <div class="absolute inset-0 flex items-center justify-center">
+                <div id="inner-ring" class="w-[300px] h-[300px] rounded-full ring-border transition-all duration-300"></div>
+            </div>
+
+            <!-- Central orb -->
+            <div class="relative z-10 flex items-center justify-center w-[500px] h-[500px]">
+                <button
+                    id="orb-button"
+                    onclick="toggleListening()"
+                    class="w-48 h-48 rounded-full bg-gradient-to-br from-pika-400/20 to-pika-600/10 orb-glow transition-all duration-500 cursor-pointer hover:scale-105 flex items-center justify-center group"
+                >
+                    <!-- Mic icon -->
+                    <svg id="mic-icon" class="w-16 h-16 text-pika-400 transition-all duration-300 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                    </svg>
+
+                    <!-- Wave visualizer (shown when listening) -->
+                    <div id="voice-visualizer" class="hidden absolute inset-0 flex items-center justify-center gap-1">
+                        <div class="wave-bar w-1 h-8 bg-pika-400 rounded-full origin-bottom"></div>
+                        <div class="wave-bar w-1 h-12 bg-pika-400 rounded-full origin-bottom"></div>
+                        <div class="wave-bar w-1 h-16 bg-pika-400 rounded-full origin-bottom"></div>
+                        <div class="wave-bar w-1 h-20 bg-pika-400 rounded-full origin-bottom"></div>
+                        <div class="wave-bar w-1 h-16 bg-pika-400 rounded-full origin-bottom"></div>
+                        <div class="wave-bar w-1 h-12 bg-pika-400 rounded-full origin-bottom"></div>
+                        <div class="wave-bar w-1 h-8 bg-pika-400 rounded-full origin-bottom"></div>
+                    </div>
+                </button>
+            </div>
+
+            <!-- Floating data points around the orb -->
+            <div class="absolute top-8 left-1/2 -translate-x-1/2 text-center animate-float">
+                <div id="transcript" class="hidden">
+                    <p id="transcript-text" class="text-pika-400/80 text-lg font-light italic max-w-xs"></p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Messages panel (above footer) -->
+    <div id="messages-panel" class="absolute bottom-44 left-0 right-0 max-h-[40vh] flex flex-col">
+        <div id="messages" class="max-w-2xl w-full mx-auto px-8 py-4 space-y-4 overflow-y-auto flex flex-col">
+            <!-- Messages will be inserted here -->
+        </div>
+    </div>
+
+    <!-- Bottom controls -->
+    <footer class="absolute bottom-0 left-0 right-0 z-20 px-8 py-6">
+        <div class="max-w-2xl mx-auto">
+            <!-- Always listen toggle -->
+            <div class="flex items-center justify-center gap-8 mb-4">
+                <button
+                    id="always-listen-btn"
+                    onclick="toggleAlwaysListen()"
+                    class="flex items-center gap-2 px-4 py-2 rounded-full border border-pika-400/30 text-pika-400/60 hover:border-pika-400/60 hover:text-pika-400 transition-all text-sm font-mono uppercase tracking-wider"
+                >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728"/>
+                    </svg>
+                    <span>Always Listen: <span id="always-listen-status">OFF</span></span>
+                </button>
+            </div>
+
+            <!-- Text input -->
+            <form id="text-form" class="relative" onsubmit="sendTextCommand(event)">
+                <input
+                    type="text"
+                    id="text-input"
+                    class="w-full bg-black/50 border border-pika-400/20 rounded-full px-6 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-pika-400/50 transition-all font-light tracking-wide"
+                    placeholder="Type a command or say 'PIKA'..."
+                    autocomplete="off"
+                />
+                <button
+                    type="submit"
+                    class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-pika-400/50 hover:text-pika-400 transition-colors"
+                >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
+                    </svg>
+                </button>
+            </form>
+
+            <!-- Hint text -->
+            <p class="text-center text-gray-600 text-xs mt-3 font-mono tracking-wider">
+                CLICK ORB OR SAY "PIKA" TO ACTIVATE
+            </p>
+        </div>
+    </footer>
+
+    <!-- Settings Panel -->
+    <div id="settings-panel" class="fixed top-20 left-8 bg-black/90 border border-pika-400/30 rounded-lg p-5 shadow-xl w-80 hidden backdrop-blur-sm z-30">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-white font-mono uppercase tracking-wider text-sm">Voice Settings</h3>
+            <button onclick="toggleSettings()" class="text-gray-500 hover:text-gray-300">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Voice Select -->
+        <div class="mb-4">
+            <label class="text-xs text-gray-400 font-mono uppercase tracking-wider block mb-2">Voice</label>
+            <select id="voice-select" onchange="changeVoice(this.value)" class="w-full bg-black/50 border border-gray-700 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-pika-400/50">
+                <option value="">Loading voices...</option>
+            </select>
+        </div>
+
+        <!-- Rate Slider -->
+        <div class="mb-4">
+            <label class="text-xs text-gray-400 font-mono uppercase tracking-wider block mb-2">
+                Speed: <span id="rate-value">1.0</span>x
+            </label>
+            <input type="range" id="voice-rate" min="0.5" max="2" step="0.1" value="1" onchange="changeRate(this.value)" class="w-full accent-pika-400">
+        </div>
+
+        <!-- Pitch Slider -->
+        <div class="mb-4">
+            <label class="text-xs text-gray-400 font-mono uppercase tracking-wider block mb-2">
+                Pitch: <span id="pitch-value">1.0</span>
+            </label>
+            <input type="range" id="voice-pitch" min="0.5" max="2" step="0.1" value="1" onchange="changePitch(this.value)" class="w-full accent-pika-400">
+        </div>
+
+        <!-- Test Button -->
+        <button onclick="testVoice()" class="w-full bg-pika-400/20 border border-pika-400/30 text-pika-400 rounded px-4 py-2 text-sm font-mono uppercase tracking-wider hover:bg-pika-400/30 transition-colors">
+            Test Voice
+        </button>
+    </div>
+
+    <!-- Settings Toggle Button -->
+    <button onclick="toggleSettings()" class="fixed top-20 left-8 w-10 h-10 bg-black/50 border border-pika-400/30 rounded-full flex items-center justify-center text-pika-400/60 hover:text-pika-400 hover:border-pika-400/60 transition-all z-20">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+    </button>
+
+    <!-- Calendar Connection Notice -->
+    <div id="calendar-notice" class="fixed top-20 right-8 bg-black/80 border border-pika-400/30 rounded-lg p-4 shadow-xl max-w-sm hidden backdrop-blur-sm">
+        <div class="flex items-start gap-3">
+            <div class="w-8 h-8 rounded-full border border-pika-400/50 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4 text-pika-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+            </div>
+            <div class="flex-1">
+                <h3 class="text-white font-medium text-sm">Connect Calendar</h3>
+                <p class="text-gray-400 text-xs mt-1">Link Google Calendar for scheduling.</p>
+                <a href="/auth/google" class="inline-block mt-2 text-xs text-pika-400 hover:text-pika-300 font-mono uppercase tracking-wider">
+                    Connect &rarr;
+                </a>
+            </div>
+            <button onclick="dismissCalendarNotice()" class="text-gray-600 hover:text-gray-400 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Update time display
+    function updateTime() {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+        document.getElementById('current-time').textContent = timeStr;
+    }
+    updateTime();
+    setInterval(updateTime, 1000);
+</script>
+{{end}}
