@@ -6,12 +6,23 @@ PIKA is a native macOS application that lets you interact with AI using your voi
 
 ## Features
 
+### Core
 - **Voice Activation** - Say "Pika" to wake the assistant, or use continuous listening mode
+- **Customizable Wake Words** - Add your own wake words, train with voice samples, or type custom phrases
 - **AI-Powered Responses** - Natural conversations powered by your choice of AI model (Gemini, GPT-4, Claude, Llama, and more via Requesty.ai)
-- **Google Calendar Integration** - Add, edit, and delete calendar events with voice commands
-- **Memory System** - PIKA remembers important information you tell it, with semantic search to recall relevant context
-- **Weather Updates** - Get current weather for any location
 - **Natural Actions** - Just speak naturally - PIKA understands intent and takes action
+
+### Productivity
+- **Google Calendar Integration** - Add, edit, and delete calendar events with voice commands
+- **Reminders** - Create reminders with multi-tier notifications (24h, 12h, 3h, 1h, 10min before, and at time)
+- **Memory System** - PIKA remembers important information you tell it, with semantic search to recall relevant context
+
+### Information
+- **Weather Updates** - Get current weather for any location
+- **Pokemon Search** - Look up Pokemon stats and information
+
+### Entertainment
+- **Higher/Lower Game** - Play a number guessing game with streak tracking
 
 ## System Requirements
 
@@ -119,11 +130,17 @@ PIKA can understand your intent and take actions:
 | Command Example | Action |
 |-----------------|--------|
 | "Add a meeting with John tomorrow at 3pm" | Creates calendar event |
-| "Remember that my wifi password is..." | Saves to memory |
-| "What's the weather in Tokyo?" | Fetches weather |
 | "Edit my 3pm meeting to 4pm" | Updates calendar event |
 | "Delete the meeting with John" | Removes calendar event |
+| "Remind me to call mom tomorrow at 9am" | Creates a reminder |
+| "What reminders do I have?" | Lists active reminders |
+| "I called mom" / "Delete the reminder" | Completes or removes reminder |
+| "Remember that my wifi password is..." | Saves to memory |
 | "What did I tell you about...?" | Searches memories |
+| "What's the weather in Tokyo?" | Fetches weather |
+| "Tell me about Pikachu" | Looks up Pokemon info |
+| "Let's play a game" | Starts Higher/Lower game |
+| "Goodbye PIKA" / "Stop listening" | Stops active listening mode |
 
 ### Memory System
 
@@ -185,8 +202,9 @@ pika/
 │   ├── server/          # HTTP server & API routes
 │   ├── ai/              # AI service (Requesty + Ollama)
 │   ├── calendar/        # Google Calendar integration
+│   ├── reminder/        # Reminders with scheduled notifications
 │   ├── memory/          # Vector memory store
-│   ├── actions/         # Action handlers
+│   ├── actions/         # Action handlers (calendar, weather, games, etc.)
 │   └── config/          # Configuration management
 ├── web/
 │   ├── templates/       # HTML templates
