@@ -36,26 +36,50 @@ jobs:
 
       # Code Signing - only runs if secrets are configured
       - name: Import Code Signing Certificate
-        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
+        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
-          echo $APPLE_CERTIFICATE_P12 | base64 --decode > certificate.p12
-          security create-keychain -p actions build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p actions build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
+          # Decode certificate
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > certificate.p12
+          echo "Certificate file size: $(wc -c < certificate.p12) bytes"
+
+          # Create and configure keychain
+          security create-keychain -p "actions" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "actions" build.keychain
+
+          # Import certificate
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+
+          # Set key partition list
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "actions" build.keychain
+
+          # Add to search list
+          security list-keychains -d user -s build.keychain login.keychain
+
+          # Verify import
+          echo "Available signing identities:"
+          security find-identity -v -p codesigning build.keychain
+
+          # Clean up certificate file
+          rm certificate.p12
 
       - name: Sign Application
-        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
+        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
         env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           # Find the signing identity
           IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+
+          if [ -z "$IDENTITY" ]; then
+            echo "ERROR: No Developer ID Application identity found"
+            security find-identity -v build.keychain
+            exit 1
+          fi
+
           echo "Signing with identity: $IDENTITY"
 
           # Sign the app with hardened runtime
@@ -66,11 +90,11 @@ jobs:
 
           # Verify signing
           codesign --verify --verbose build/bin/PIKA.app
+          echo "Signing successful!"
 
       - name: Notarize Application
-        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
+        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
         env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -90,6 +114,7 @@ jobs:
 
           # Clean up
           rm PIKA-notarize.zip
+          echo "Notarization successful!"
 
       - name: Get Version
         id: version
@@ -111,11 +136,16 @@ jobs:
 
       # Re-sign after adding Ollama (modifying bundle invalidates signature)
       - name: Re-sign Full Version
-        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
-        env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
         run: |
           IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+
+          if [ -z "$IDENTITY" ]; then
+            echo "ERROR: No Developer ID Application identity found"
+            exit 1
+          fi
+
+          echo "Re-signing full version with identity: $IDENTITY"
 
           # Sign the bundled Ollama binary first
           codesign --force --options runtime \
@@ -130,11 +160,11 @@ jobs:
             build/bin/PIKA.app
 
           codesign --verify --verbose build/bin/PIKA.app
+          echo "Re-signing successful!"
 
       - name: Notarize Full Version
-        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
+        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
         env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -147,6 +177,7 @@ jobs:
             --wait
           xcrun stapler staple build/bin/PIKA.app
           rm PIKA-full-notarize.zip
+          echo "Full version notarization successful!"
 
       # Package full version (with Ollama)
       - name: Package Full Version
