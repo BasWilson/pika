@@ -11,6 +11,7 @@ import (
 	"github.com/baswilson/pika/internal/ai"
 	"github.com/baswilson/pika/internal/ws"
 	"github.com/go-chi/chi/v5"
+	"github.com/sashabaranov/go-openai"
 )
 
 // setupRoutes configures all HTTP routes
@@ -117,10 +118,16 @@ func (s *Server) processCommand(client *ws.Client, cmd *ws.CommandPayload, reque
 	status, _ := ws.NewStatus("processing", true, "busy")
 	client.SendMessage(status)
 
-	// Process through AI service
-	log.Printf("[FLOW] Calling AI service...")
+	// Add user message to conversation history
+	client.AddToHistory("user", cmd.Text)
+
+	// Convert history to OpenAI format
+	history := convertToOpenAIMessages(client.GetHistory())
+
+	// Process through AI service with conversation history
+	log.Printf("[FLOW] Calling AI service with %d messages in history...", len(history))
 	aiStart := time.Now()
-	response, actions, err := s.ai.ProcessCommand(cmd.Text)
+	response, actions, err := s.ai.ProcessCommandWithHistory(cmd.Text, history)
 	log.Printf("[FLOW] AI service returned in %v", time.Since(aiStart))
 	if err != nil {
 		log.Printf("AI processing error: %v", err)
@@ -140,6 +147,9 @@ func (s *Server) processCommand(client *ws.Client, cmd *ws.CommandPayload, reque
 		respMsg, _ := ws.NewResponse(response.Text, response.Emotion)
 		client.SendMessage(respMsg)
 		log.Printf("[FLOW] Response sent to client")
+
+		// Add assistant response to conversation history
+		client.AddToHistory("assistant", response.Text)
 	}
 
 	// Reset status
@@ -162,6 +172,29 @@ func min(a, b int) int {
 	return b
 }
 
+// convertToOpenAIMessages converts conversation history to OpenAI message format
+func convertToOpenAIMessages(history []ws.ConversationMessage) []openai.ChatCompletionMessage {
+	messages := make([]openai.ChatCompletionMessage, len(history))
+	for i, msg := range history {
+		role := openai.ChatMessageRoleUser
+		if msg.Role == "assistant" {
+			role = openai.ChatMessageRoleAssistant
+		}
+		messages[i] = openai.ChatCompletionMessage{
+			Role:    role,
+			Content: msg.Content,
+		}
+	}
+	return messages
+}
+
+// Actions that return data the user wants to see/hear or trigger frontend behavior
+var queryActions = map[string]bool{
+	"GET_WEATHER":    true,
+	"SEARCH_POKEMON": true,
+	"STOP_LISTENING": true,
+}
+
 // executeActionAsync runs an action in the background and notifies the client
 func (s *Server) executeActionAsync(client *ws.Client, action ai.Action) {
 	log.Printf("[ACTION] Starting async execution: %s", action.Type)
@@ -170,13 +203,20 @@ func (s *Server) executeActionAsync(client *ws.Client, action ai.Action) {
 	result := s.actions.Execute(action)
 
 	elapsed := time.Since(start)
-	// Only notify on error - success is silent for better UX
+
 	if !result.Success {
 		log.Printf("[ACTION] %s failed after %v: %s", action.Type, elapsed, result.Error)
 		actionMsg, _ := ws.NewMessage(ws.MessageTypeAction, result)
 		client.SendMessage(actionMsg)
 	} else {
 		log.Printf("[ACTION] %s completed successfully in %v", action.Type, elapsed)
+
+		// For query actions (weather, pokemon), send the result back to the client
+		if queryActions[action.Type] {
+			log.Printf("[ACTION] Sending query result to client for: %s", action.Type)
+			actionMsg, _ := ws.NewMessage(ws.MessageTypeAction, result)
+			client.SendMessage(actionMsg)
+		}
 	}
 }
 

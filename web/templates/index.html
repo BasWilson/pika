@@ -183,6 +183,69 @@
         </svg>
     </button>
 
+    <!-- Training Toggle Button -->
+    <button onclick="toggleTraining()" class="fixed top-20 left-20 w-10 h-10 bg-black/50 border border-pika-400/30 rounded-full flex items-center justify-center text-pika-400/60 hover:text-pika-400 hover:border-pika-400/60 transition-all z-20" title="Train Wake Word">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+        </svg>
+    </button>
+
+    <!-- Training Panel -->
+    <div id="training-panel" class="fixed top-20 left-8 bg-black/90 border border-pika-400/30 rounded-lg p-5 shadow-xl w-80 hidden backdrop-blur-sm z-30">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-white font-mono uppercase tracking-wider text-sm">Train Wake Word</h3>
+            <button onclick="toggleTraining()" class="text-gray-500 hover:text-gray-300">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Instructions -->
+        <p id="training-instructions" class="text-sm text-gray-400 mb-4">
+            Click Start and say "PIKA" 5 times. Captures first 2 words (e.g. "pick up").
+        </p>
+
+        <!-- Progress -->
+        <div class="mb-4">
+            <div class="flex justify-between text-xs text-gray-500 mb-1">
+                <span>Progress</span>
+                <span id="training-count">0/5</span>
+            </div>
+            <div class="w-full bg-gray-800 rounded-full h-2">
+                <div id="training-progress" class="bg-pika-400 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- Captured samples -->
+        <div id="training-samples" class="flex flex-wrap gap-2 mb-4 min-h-[40px]">
+            <!-- Samples will be added here -->
+        </div>
+
+        <!-- Current wake words -->
+        <div class="mb-4">
+            <div class="text-xs text-gray-500 mb-2">Current Wake Words:</div>
+            <div id="current-wake-words" class="flex flex-wrap gap-1">
+                <span class="text-xs bg-pika-400/20 text-pika-400 rounded px-2 py-1">pika</span>
+            </div>
+        </div>
+
+        <!-- Buttons -->
+        <div class="flex gap-2">
+            <button id="start-training-btn" onclick="startTrainingSession()" class="flex-1 bg-pika-400/20 border border-pika-400/30 text-pika-400 rounded px-4 py-2 text-sm font-mono uppercase tracking-wider hover:bg-pika-400/30 transition-colors">
+                Start
+            </button>
+            <button id="done-training-btn" onclick="toggleTraining()" class="flex-1 bg-green-500/20 border border-green-500/30 text-green-400 rounded px-4 py-2 text-sm font-mono uppercase tracking-wider hover:bg-green-500/30 transition-colors hidden">
+                Done
+            </button>
+            <button onclick="resetWakeWords()" class="bg-red-500/20 border border-red-500/30 text-red-400 rounded px-3 py-2 text-sm font-mono uppercase tracking-wider hover:bg-red-500/30 transition-colors" title="Reset to default">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
     <!-- Calendar Connection Notice -->
     <div id="calendar-notice" class="fixed top-20 right-8 bg-black/80 border border-pika-400/30 rounded-lg p-4 shadow-xl max-w-sm hidden backdrop-blur-sm">
         <div class="flex items-start gap-3">

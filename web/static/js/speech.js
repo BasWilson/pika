@@ -6,7 +6,7 @@ class PikaSpeech {
         this.synthesis = window.speechSynthesis;
         this.isListening = false;
         this.alwaysListen = false;
-        this.wakeWord = 'pika';
+        this.wakeWords = ['pika'];  // Array of valid wake words (trained variants)
         this.wakeWordDetected = false;
         this.listeners = new Map();
         this.currentTranscript = '';
@@ -17,8 +17,117 @@ class PikaSpeech {
         this.networkErrorCount = 0;
         this.maxNetworkRetries = 3;
 
+        // Training mode state
+        this.isTraining = false;
+        this.trainingSamples = [];
+        this.requiredSamples = 5;
+
+        // Wake word timeout - how long to accept commands without wake word (ms)
+        this.wakeWordTimeout = 30000; // 30 seconds
+        this.wakeWordTimer = null;
+
+        this.loadWakeWords();
         this.initRecognition();
         this.initVoices();
+    }
+
+    // Load saved wake words from localStorage
+    loadWakeWords() {
+        try {
+            const saved = localStorage.getItem('pika_wake_words');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    // Ensure 'pika' is always included
+                    this.wakeWords = [...new Set(['pika', ...parsed])];
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load wake words:', error);
+            this.wakeWords = ['pika'];
+        }
+    }
+
+    // Save wake words to localStorage
+    saveWakeWords() {
+        try {
+            localStorage.setItem('pika_wake_words', JSON.stringify(this.wakeWords));
+        } catch (error) {
+            console.error('Failed to save wake words:', error);
+        }
+    }
+
+    // Start training mode
+    startTraining() {
+        this.isTraining = true;
+        this.trainingSamples = [];
+        this.emit('training_started');
+
+        // Start listening if not already
+        if (!this.isListening) {
+            this.start();
+        }
+    }
+
+    // Stop training mode without saving
+    stopTraining() {
+        this.isTraining = false;
+        this.trainingSamples = [];
+        this.emit('training_stopped');
+    }
+
+    // Finish training and save samples
+    finishTraining() {
+        if (this.trainingSamples.length > 0) {
+            // Merge new samples with existing wake words, avoiding duplicates
+            const allWords = [...this.wakeWords, ...this.trainingSamples];
+            this.wakeWords = [...new Set(allWords.map(w => w.toLowerCase()))];
+            this.saveWakeWords();
+        }
+
+        this.isTraining = false;
+        this.trainingSamples = [];
+        this.emit('training_complete', { wakeWords: this.wakeWords });
+    }
+
+    // Reset wake words to default
+    resetWakeWords() {
+        this.wakeWords = ['pika'];
+        this.saveWakeWords();
+        this.emit('wake_words_reset');
+    }
+
+    // Get current wake words
+    getWakeWords() {
+        return [...this.wakeWords];
+    }
+
+    // Activate wake word mode with timeout
+    activateWakeWord() {
+        this.wakeWordDetected = true;
+        this.resetWakeWordTimer();
+    }
+
+    // Reset the wake word timeout timer
+    resetWakeWordTimer() {
+        if (this.wakeWordTimer) {
+            clearTimeout(this.wakeWordTimer);
+        }
+        this.wakeWordTimer = setTimeout(() => {
+            this.wakeWordDetected = false;
+            this.wakeWordTimer = null;
+            this.emit('wake_word_timeout');
+            console.log('Wake word timeout - waiting for wake word again');
+        }, this.wakeWordTimeout);
+    }
+
+    // Clear wake word state (e.g., when disabling always listen)
+    clearWakeWordState() {
+        if (this.wakeWordTimer) {
+            clearTimeout(this.wakeWordTimer);
+            this.wakeWordTimer = null;
+        }
+        this.wakeWordDetected = false;
     }
 
     initVoices() {
@@ -158,16 +267,25 @@ class PikaSpeech {
     handleFinalTranscript(text, confidence) {
         console.log('Final transcript:', text, 'confidence:', confidence);
 
+        // Handle training mode
+        if (this.isTraining) {
+            this.handleTrainingSample(text);
+            return;
+        }
+
         const lowerText = text.toLowerCase();
 
-        // Check for wake word
+        // Check for any wake word variant
         if (this.alwaysListen) {
-            if (lowerText.includes(this.wakeWord)) {
-                this.wakeWordDetected = true;
+            const matchedWakeWord = this.findMatchingWakeWord(lowerText);
 
-                // Extract command after wake word
-                const wakeWordIndex = lowerText.indexOf(this.wakeWord);
-                const command = text.substring(wakeWordIndex + this.wakeWord.length).trim();
+            if (matchedWakeWord) {
+                this.activateWakeWord();
+
+                // Extract command after wake word using word boundary match
+                const regex = new RegExp(`\\b${this.escapeRegex(matchedWakeWord)}\\b`, 'i');
+                const match = regex.exec(lowerText);
+                const command = match ? text.substring(match.index + matchedWakeWord.length).trim() : '';
 
                 if (command) {
                     this.emit('command', {
@@ -176,18 +294,19 @@ class PikaSpeech {
                         confidence: confidence,
                         fullText: text
                     });
+                    this.resetWakeWordTimer(); // Keep listening for more commands
                 } else {
                     // Wake word only - wait for command
                     this.emit('wake_word_detected');
                 }
             } else if (this.wakeWordDetected) {
-                // Command following wake word
+                // Command following wake word (within timeout window)
                 this.emit('command', {
                     text: text,
                     wakeWord: true,
                     confidence: confidence
                 });
-                this.wakeWordDetected = false;
+                this.resetWakeWordTimer(); // Reset timer for another command
             }
         } else {
             // Not in always-listen mode, treat as direct command
@@ -196,6 +315,53 @@ class PikaSpeech {
                 wakeWord: false,
                 confidence: confidence
             });
+        }
+    }
+
+    // Find which wake word matches in the text (as a standalone word)
+    findMatchingWakeWord(lowerText) {
+        for (const wakeWord of this.wakeWords) {
+            const word = wakeWord.toLowerCase();
+            // Use word boundary regex to avoid matching "pika" inside "pikachu"
+            const regex = new RegExp(`\\b${this.escapeRegex(word)}\\b`, 'i');
+            if (regex.test(lowerText)) {
+                return word;
+            }
+        }
+        return null;
+    }
+
+    // Escape special regex characters
+    escapeRegex(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    // Handle a training sample
+    handleTrainingSample(text) {
+        if (!text || text.trim().length === 0) {
+            return;
+        }
+
+        // Extract the first two words from the transcript (to catch "pick up", "peek a", etc.)
+        const words = text.trim().split(/\s+/);
+        const sample = words.slice(0, 2).join(' ').toLowerCase();
+
+        // Only add if not empty and not already in samples
+        if (sample && !this.trainingSamples.includes(sample)) {
+            this.trainingSamples.push(sample);
+        }
+
+        this.emit('training_sample', {
+            sample: sample,
+            fullText: text,
+            count: this.trainingSamples.length,
+            required: this.requiredSamples,
+            samples: [...this.trainingSamples]
+        });
+
+        // Auto-finish when we have enough samples
+        if (this.trainingSamples.length >= this.requiredSamples) {
+            this.finishTraining();
         }
     }
 
@@ -227,8 +393,11 @@ class PikaSpeech {
         this.alwaysListen = enabled;
         if (enabled && !this.isListening) {
             this.start();
-        } else if (!enabled && this.isListening) {
-            this.stop();
+        } else if (!enabled) {
+            this.clearWakeWordState();
+            if (this.isListening) {
+                this.stop();
+            }
         }
     }
 

@@ -449,6 +449,191 @@ func (s *Service) updateEventGoogleID(ctx context.Context, id, googleID string) 
 	return err
 }
 
+// UpdateEvent updates an existing calendar event
+func (s *Service) UpdateEvent(ctx context.Context, eventID string, title, description, startTime, endTime, location *string) (*Event, error) {
+	// First, get the existing event
+	event, err := s.GetEventByID(ctx, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("event not found: %w", err)
+	}
+
+	// Update fields if provided
+	if title != nil {
+		event.Title = *title
+	}
+	if description != nil {
+		event.Description = *description
+	}
+	if startTime != nil {
+		start, err := time.Parse(time.RFC3339, *startTime)
+		if err != nil {
+			return nil, fmt.Errorf("invalid start time: %w", err)
+		}
+		event.StartTime = start
+	}
+	if endTime != nil {
+		end, err := time.Parse(time.RFC3339, *endTime)
+		if err != nil {
+			return nil, fmt.Errorf("invalid end time: %w", err)
+		}
+		event.EndTime = end
+	}
+	if location != nil {
+		event.Location = *location
+	}
+
+	// Update locally
+	query := `
+		UPDATE calendar_events
+		SET title = $1, description = $2, start_time = $3, end_time = $4, location = $5, updated_at = NOW()
+		WHERE id = $6
+	`
+	_, err = s.db.ExecContext(ctx, query,
+		event.Title, event.Description, event.StartTime, event.EndTime, event.Location, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update local event: %w", err)
+	}
+
+	// If connected to Google and event has Google ID, update there too
+	if s.IsInitialized() && event.GoogleID != "" {
+		if err := s.updateGoogleEvent(ctx, event); err != nil {
+			fmt.Printf("Failed to update Google event: %v\n", err)
+		} else {
+			go s.syncFromGoogle()
+		}
+	}
+
+	return event, nil
+}
+
+// DeleteEvent deletes a calendar event
+func (s *Service) DeleteEvent(ctx context.Context, eventID string) error {
+	// First, get the existing event to check for Google ID
+	event, err := s.GetEventByID(ctx, eventID)
+	if err != nil {
+		return fmt.Errorf("event not found: %w", err)
+	}
+
+	// Delete locally
+	_, err = s.db.ExecContext(ctx, "DELETE FROM calendar_events WHERE id = $1", eventID)
+	if err != nil {
+		return fmt.Errorf("failed to delete local event: %w", err)
+	}
+
+	// If connected to Google and event has Google ID, delete there too
+	if s.IsInitialized() && event.GoogleID != "" {
+		if err := s.deleteGoogleEvent(ctx, event.GoogleID); err != nil {
+			fmt.Printf("Failed to delete Google event: %v\n", err)
+		}
+	}
+
+	return nil
+}
+
+// GetEventByID retrieves an event by its ID
+func (s *Service) GetEventByID(ctx context.Context, eventID string) (*Event, error) {
+	query := `
+		SELECT id, google_event_id, title, description, start_time, end_time, location, created_at
+		FROM calendar_events
+		WHERE id = $1
+	`
+
+	e := &Event{}
+	var googleID, description, location sql.NullString
+
+	err := s.db.QueryRowContext(ctx, query, eventID).Scan(
+		&e.ID, &googleID, &e.Title, &description, &e.StartTime, &e.EndTime, &location, &e.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	if googleID.Valid {
+		e.GoogleID = googleID.String
+	}
+	if description.Valid {
+		e.Description = description.String
+	}
+	if location.Valid {
+		e.Location = location.String
+	}
+
+	return e, nil
+}
+
+// FindEventByTitle searches for events by title (partial match)
+func (s *Service) FindEventByTitle(ctx context.Context, titleSearch string) ([]*Event, error) {
+	query := `
+		SELECT id, google_event_id, title, description, start_time, end_time, location, created_at
+		FROM calendar_events
+		WHERE LOWER(title) LIKE LOWER($1)
+		ORDER BY start_time ASC
+		LIMIT 10
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, "%"+titleSearch+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []*Event
+	for rows.Next() {
+		e := &Event{}
+		var googleID, description, location sql.NullString
+
+		if err := rows.Scan(&e.ID, &googleID, &e.Title, &description, &e.StartTime, &e.EndTime, &location, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+
+		if googleID.Valid {
+			e.GoogleID = googleID.String
+		}
+		if description.Valid {
+			e.Description = description.String
+		}
+		if location.Valid {
+			e.Location = location.String
+		}
+
+		events = append(events, e)
+	}
+
+	return events, nil
+}
+
+// updateGoogleEvent updates an event in Google Calendar
+func (s *Service) updateGoogleEvent(ctx context.Context, event *Event) error {
+	srv, err := s.getClient(ctx)
+	if err != nil {
+		return err
+	}
+
+	gEvent := &gcalendar.Event{
+		Summary:     event.Title,
+		Description: event.Description,
+		Location:    event.Location,
+		Start: &gcalendar.EventDateTime{
+			DateTime: event.StartTime.Format(time.RFC3339),
+		},
+		End: &gcalendar.EventDateTime{
+			DateTime: event.EndTime.Format(time.RFC3339),
+		},
+	}
+
+	_, err = srv.Events.Update("primary", event.GoogleID, gEvent).Do()
+	return err
+}
+
+// deleteGoogleEvent deletes an event from Google Calendar
+func (s *Service) deleteGoogleEvent(ctx context.Context, googleID string) error {
+	srv, err := s.getClient(ctx)
+	if err != nil {
+		return err
+	}
+
+	return srv.Events.Delete("primary", googleID).Do()
+}
+
 // loadToken loads the OAuth token from the database
 func (s *Service) loadToken() {
 	ctx := context.Background()

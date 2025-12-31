@@ -24,13 +24,21 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// ConversationMessage represents a message in the conversation history
+type ConversationMessage struct {
+	Role    string // "user" or "assistant"
+	Content string
+}
+
 // Client represents a WebSocket client connection
 type Client struct {
-	hub     *Hub
-	conn    *websocket.Conn
-	send    chan []byte
-	format  ResponseFormat
-	handler MessageHandler
+	hub        *Hub
+	conn       *websocket.Conn
+	send       chan []byte
+	format     ResponseFormat
+	handler    MessageHandler
+	history    []ConversationMessage
+	maxHistory int
 }
 
 // MessageHandler processes incoming messages
@@ -39,11 +47,13 @@ type MessageHandler func(client *Client, msg *Message)
 // NewClient creates a new WebSocket client
 func NewClient(hub *Hub, conn *websocket.Conn, handler MessageHandler) *Client {
 	return &Client{
-		hub:     hub,
-		conn:    conn,
-		send:    make(chan []byte, 256),
-		format:  FormatHTMX,
-		handler: handler,
+		hub:        hub,
+		conn:       conn,
+		send:       make(chan []byte, 256),
+		format:     FormatHTMX,
+		handler:    handler,
+		history:    make([]ConversationMessage, 0),
+		maxHistory: 20,
 	}
 }
 
@@ -174,4 +184,22 @@ func (c *Client) SendMessage(msg *Message) error {
 // GetFormat returns the client's preferred response format
 func (c *Client) GetFormat() ResponseFormat {
 	return c.format
+}
+
+// AddToHistory adds a message to the conversation history
+func (c *Client) AddToHistory(role, content string) {
+	c.history = append(c.history, ConversationMessage{
+		Role:    role,
+		Content: content,
+	})
+
+	// Trim to max history size
+	if len(c.history) > c.maxHistory {
+		c.history = c.history[len(c.history)-c.maxHistory:]
+	}
+}
+
+// GetHistory returns the conversation history
+func (c *Client) GetHistory() []ConversationMessage {
+	return c.history
 }
