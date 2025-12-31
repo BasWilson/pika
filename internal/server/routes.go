@@ -53,6 +53,17 @@ func (s *Server) setupRoutes() {
 		// Calendar endpoints
 		r.Get("/calendar/events", s.handleListCalendarEvents)
 		r.Post("/calendar/events", s.handleCreateCalendarEvent)
+
+		// Reminder endpoints
+		r.Get("/reminders", s.handleListReminders)
+		r.Post("/reminders", s.handleCreateReminder)
+		r.Get("/reminders/{id}", s.handleGetReminder)
+		r.Put("/reminders/{id}", s.handleUpdateReminder)
+		r.Delete("/reminders/{id}", s.handleDeleteReminder)
+		r.Post("/reminders/{id}/complete", s.handleCompleteReminder)
+
+		// Game endpoints
+		r.Post("/game/move", s.handleGameMove)
 	})
 
 	// OAuth routes
@@ -203,6 +214,9 @@ var queryActions = map[string]bool{
 	"GET_WEATHER":    true,
 	"SEARCH_POKEMON": true,
 	"STOP_LISTENING": true,
+	"LIST_REMINDERS": true,
+	"START_GAME":     true,
+	"GAME_MOVE":      true,
 }
 
 // executeActionAsync runs an action in the background and notifies the client
@@ -429,4 +443,167 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 		"status":  "reset",
 		"message": "Configuration cleared. Please restart the app.",
 	})
+}
+
+// handleListReminders returns all reminders
+func (s *Server) handleListReminders(w http.ResponseWriter, r *http.Request) {
+	includeCompleted := r.URL.Query().Get("include_completed") == "true"
+
+	reminders, err := s.reminder.List(r.Context(), includeCompleted)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(reminders)
+}
+
+// handleCreateReminder creates a new reminder
+func (s *Server) handleCreateReminder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		RemindAt    string `json:"remind_at"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Title == "" || req.RemindAt == "" {
+		http.Error(w, "title and remind_at are required", http.StatusBadRequest)
+		return
+	}
+
+	remindAt, err := time.Parse(time.RFC3339, req.RemindAt)
+	if err != nil {
+		http.Error(w, "invalid remind_at format, use RFC3339", http.StatusBadRequest)
+		return
+	}
+
+	reminder, err := s.reminder.Create(r.Context(), req.Title, req.Description, remindAt)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(reminder)
+}
+
+// handleGetReminder returns a specific reminder
+func (s *Server) handleGetReminder(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	reminder, err := s.reminder.Get(r.Context(), id)
+	if err != nil {
+		http.Error(w, "reminder not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(reminder)
+}
+
+// handleUpdateReminder updates a reminder
+func (s *Server) handleUpdateReminder(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req struct {
+		Title       *string `json:"title"`
+		Description *string `json:"description"`
+		RemindAt    *string `json:"remind_at"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var remindAt *time.Time
+	if req.RemindAt != nil {
+		t, err := time.Parse(time.RFC3339, *req.RemindAt)
+		if err != nil {
+			http.Error(w, "invalid remind_at format, use RFC3339", http.StatusBadRequest)
+			return
+		}
+		remindAt = &t
+	}
+
+	reminder, err := s.reminder.Update(r.Context(), id, req.Title, req.Description, remindAt)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(reminder)
+}
+
+// handleDeleteReminder deletes a reminder
+func (s *Server) handleDeleteReminder(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	if err := s.reminder.Delete(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleCompleteReminder marks a reminder as completed
+func (s *Server) handleCompleteReminder(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	if err := s.reminder.MarkCompleted(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "completed"})
+}
+
+// handleGameMove processes a game move directly (bypasses AI)
+func (s *Server) handleGameMove(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Move      string `json:"move"`
+		GameState struct {
+			GameType      string `json:"game_type"`
+			CurrentNumber int    `json:"current_number"`
+			TargetNumber  int    `json:"target_number"`
+			Streak        int    `json:"streak"`
+			BestStreak    int    `json:"best_streak"`
+		} `json:"game_state"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Build action data
+	actionData := map[string]interface{}{
+		"move":           req.Move,
+		"current_number": float64(req.GameState.CurrentNumber),
+		"target_number":  float64(req.GameState.TargetNumber),
+		"streak":         float64(req.GameState.Streak),
+		"best_streak":    float64(req.GameState.BestStreak),
+	}
+
+	// Execute via registry
+	result := s.actions.Execute(ai.Action{
+		Type: "GAME_MOVE",
+		Data: actionData,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	if !result.Success {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+	json.NewEncoder(w).Encode(result)
 }

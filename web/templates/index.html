@@ -211,10 +211,10 @@
     </div>
 
 
-    <!-- Training Panel -->
-    <div id="training-panel" class="fixed bottom-48 left-1/2 -translate-x-1/2 bg-black/90 border border-pika-400/30 rounded-lg p-5 shadow-xl w-80 hidden backdrop-blur-sm z-30">
+    <!-- Wake Words Panel -->
+    <div id="training-panel" class="fixed bottom-48 left-1/2 -translate-x-1/2 bg-black/90 border border-pika-400/30 rounded-lg p-5 shadow-xl w-96 hidden backdrop-blur-sm z-30 max-h-[70vh] overflow-y-auto">
         <div class="flex items-center justify-between mb-4">
-            <h3 class="text-white font-mono uppercase tracking-wider text-sm">Train Wake Word</h3>
+            <h3 class="text-white font-mono uppercase tracking-wider text-sm">Manage Wake Words</h3>
             <button onclick="toggleTraining()" class="text-gray-500 hover:text-gray-300">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -222,48 +222,67 @@
             </button>
         </div>
 
-        <!-- Instructions -->
-        <p id="training-instructions" class="text-sm text-gray-400 mb-4">
-            Click Start and say "PIKA" 5 times. Captures first 2 words (e.g. "pick up").
-        </p>
-
-        <!-- Progress -->
+        <!-- Add wake word manually -->
         <div class="mb-4">
-            <div class="flex justify-between text-xs text-gray-500 mb-1">
-                <span>Progress</span>
-                <span id="training-count">0/5</span>
-            </div>
-            <div class="w-full bg-gray-800 rounded-full h-2">
-                <div id="training-progress" class="bg-pika-400 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+            <div class="text-xs text-gray-500 mb-2">Add Wake Word:</div>
+            <div class="flex gap-2">
+                <input type="text" id="wake-word-input" placeholder="Type a wake word..."
+                    class="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-pika-400 focus:outline-none"
+                    onkeypress="if(event.key==='Enter') addWakeWordFromInput()">
+                <button onclick="addWakeWordFromInput()" class="bg-pika-400/20 border border-pika-400/30 text-pika-400 rounded px-3 py-2 text-sm hover:bg-pika-400/30 transition-colors" title="Add">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                </button>
             </div>
         </div>
 
-        <!-- Captured samples -->
-        <div id="training-samples" class="flex flex-wrap gap-2 mb-4 min-h-[40px]">
-            <!-- Samples will be added here -->
+        <!-- Voice training section -->
+        <div class="mb-4 border-t border-gray-700 pt-4">
+            <div class="text-xs text-gray-500 mb-2">Or Train by Voice:</div>
+            <p id="training-instructions" class="text-xs text-gray-400 mb-3">
+                Click Start and say "PIKA" 5 times. Captures variations like "pick up", "peek a".
+            </p>
+
+            <!-- Progress -->
+            <div class="mb-3">
+                <div class="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>Progress</span>
+                    <span id="training-count">0/5</span>
+                </div>
+                <div class="w-full bg-gray-800 rounded-full h-2">
+                    <div id="training-progress" class="bg-pika-400 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Captured samples -->
+            <div id="training-samples" class="flex flex-wrap gap-2 mb-3 min-h-[32px]">
+                <!-- Samples will be added here -->
+            </div>
+
+            <!-- Training buttons -->
+            <div class="flex gap-2">
+                <button id="start-training-btn" onclick="startTrainingSession()" class="flex-1 bg-pika-400/20 border border-pika-400/30 text-pika-400 rounded px-3 py-2 text-xs font-mono uppercase tracking-wider hover:bg-pika-400/30 transition-colors">
+                    Start Training
+                </button>
+                <button id="done-training-btn" onclick="toggleTraining()" class="flex-1 bg-green-500/20 border border-green-500/30 text-green-400 rounded px-3 py-2 text-xs font-mono uppercase tracking-wider hover:bg-green-500/30 transition-colors hidden">
+                    Done
+                </button>
+            </div>
         </div>
 
         <!-- Current wake words -->
-        <div class="mb-4">
-            <div class="text-xs text-gray-500 mb-2">Current Wake Words:</div>
-            <div id="current-wake-words" class="flex flex-wrap gap-1">
+        <div class="border-t border-gray-700 pt-4">
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-xs text-gray-500">Current Wake Words (<span id="wake-word-count">0</span>):</span>
+                <button onclick="resetWakeWords()" class="text-xs text-red-400 hover:text-red-300 transition-colors" title="Reset to defaults">
+                    Reset
+                </button>
+            </div>
+            <div id="current-wake-words" class="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
                 <span class="text-xs bg-pika-400/20 text-pika-400 rounded px-2 py-1">pika</span>
             </div>
-        </div>
-
-        <!-- Buttons -->
-        <div class="flex gap-2">
-            <button id="start-training-btn" onclick="startTrainingSession()" class="flex-1 bg-pika-400/20 border border-pika-400/30 text-pika-400 rounded px-4 py-2 text-sm font-mono uppercase tracking-wider hover:bg-pika-400/30 transition-colors">
-                Start
-            </button>
-            <button id="done-training-btn" onclick="toggleTraining()" class="flex-1 bg-green-500/20 border border-green-500/30 text-green-400 rounded px-4 py-2 text-sm font-mono uppercase tracking-wider hover:bg-green-500/30 transition-colors hidden">
-                Done
-            </button>
-            <button onclick="resetWakeWords()" class="bg-red-500/20 border border-red-500/30 text-red-400 rounded px-3 py-2 text-sm font-mono uppercase tracking-wider hover:bg-red-500/30 transition-colors" title="Reset to default">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
-            </button>
+            <p class="text-xs text-gray-600 mt-2">Click on a word to remove it. "pika" cannot be removed.</p>
         </div>
     </div>
 

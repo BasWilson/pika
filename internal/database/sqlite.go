@@ -139,6 +139,26 @@ func (d *SQLiteDriver) Initialize(ctx context.Context) error {
 		value TEXT NOT NULL,
 		updated_at TEXT DEFAULT (datetime('now'))
 	);
+
+	-- Reminders table
+	CREATE TABLE IF NOT EXISTS reminders (
+		id TEXT PRIMARY KEY,
+		title TEXT NOT NULL,
+		description TEXT,
+		remind_at TEXT NOT NULL,
+		notified_24h INTEGER DEFAULT 0,
+		notified_12h INTEGER DEFAULT 0,
+		notified_3h INTEGER DEFAULT 0,
+		notified_1h INTEGER DEFAULT 0,
+		notified_10m INTEGER DEFAULT 0,
+		notified_at_time INTEGER DEFAULT 0,
+		completed INTEGER DEFAULT 0,
+		created_at TEXT DEFAULT (datetime('now')),
+		updated_at TEXT DEFAULT (datetime('now'))
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_reminders_remind_at ON reminders(remind_at);
+	CREATE INDEX IF NOT EXISTS idx_reminders_completed ON reminders(completed);
 	`
 
 	_, err := d.db.ExecContext(ctx, schema)

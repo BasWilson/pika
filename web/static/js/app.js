@@ -237,6 +237,14 @@ class PikaApp {
             this.updateWakeWordsList();
         });
 
+        this.speech.on('wake_word_added', () => {
+            this.updateWakeWordsList();
+        });
+
+        this.speech.on('wake_word_removed', () => {
+            this.updateWakeWordsList();
+        });
+
         this.speech.on('speak_start', () => {
             this.setOrbState('speaking');
             this.setStatus('Speaking');
@@ -452,6 +460,23 @@ class PikaApp {
             return;
         }
 
+        // Handle list reminders
+        if (success && actionType === 'LIST_REMINDERS') {
+            this.displayRemindersResult(payload.data);
+            return;
+        }
+
+        // Handle game actions
+        if (success && actionType === 'START_GAME' && payload.data) {
+            this.displayGameUI(payload.data);
+            return;
+        }
+
+        if (success && actionType === 'GAME_MOVE' && payload.data) {
+            this.updateGameUI(payload.data);
+            return;
+        }
+
         // Default action message for other types
         const borderColor = success ? 'border-green-500/30' : 'border-red-500/30';
         const textColor = success ? 'text-green-400' : 'text-red-400';
@@ -553,6 +578,210 @@ class PikaApp {
         }
         html += '</div>';
         return html;
+    }
+
+    displayRemindersResult(data) {
+        const reminders = data || [];
+
+        if (reminders.length === 0) {
+            const html = `
+                <div class="flex justify-start">
+                    <div class="max-w-md w-full">
+                        <div class="text-xs text-purple-400/60 mb-1 font-mono uppercase tracking-wider">Reminders</div>
+                        <div class="bg-gradient-to-br from-purple-900/30 to-purple-800/20 border border-purple-500/30 rounded-lg px-4 py-3">
+                            <p class="text-purple-200/80 text-sm">No active reminders.</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            this.appendMessage(html);
+            this.speech.speak("You have no active reminders.");
+            return;
+        }
+
+        // Build reminder list HTML
+        let reminderListHtml = '';
+        const speechParts = [];
+
+        reminders.forEach((reminder, index) => {
+            const timeStr = this.formatReminderTime(reminder.remind_at);
+            reminderListHtml += `
+                <div class="flex items-start gap-3 ${index > 0 ? 'mt-3 pt-3 border-t border-purple-500/20' : ''}">
+                    <div class="text-purple-400 mt-0.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-white font-medium text-sm">${this.escapeHtml(reminder.title)}</div>
+                        <div class="text-purple-300/60 text-xs mt-0.5">${timeStr}</div>
+                        ${reminder.description ? `<div class="text-purple-200/50 text-xs mt-1">${this.escapeHtml(reminder.description)}</div>` : ''}
+                    </div>
+                </div>
+            `;
+            speechParts.push(`${reminder.title}, ${timeStr}`);
+        });
+
+        const html = `
+            <div class="flex justify-start">
+                <div class="max-w-md w-full">
+                    <div class="text-xs text-purple-400/60 mb-1 font-mono uppercase tracking-wider">Reminders (${reminders.length})</div>
+                    <div class="bg-gradient-to-br from-purple-900/30 to-purple-800/20 border border-purple-500/30 rounded-lg px-4 py-3">
+                        ${reminderListHtml}
+                    </div>
+                </div>
+            </div>
+        `;
+        this.appendMessage(html);
+
+        // Speak the reminders
+        const count = reminders.length;
+        const intro = count === 1 ? "You have 1 reminder:" : `You have ${count} reminders:`;
+        const speechText = `${intro} ${speechParts.join('. ')}`;
+        this.speech.speak(speechText);
+    }
+
+    formatReminderTime(isoString) {
+        try {
+            const date = new Date(isoString);
+            const now = new Date();
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+
+            const timeOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
+            const timeStr = date.toLocaleTimeString('en-US', timeOptions);
+
+            // Check if it's today
+            if (date.toDateString() === now.toDateString()) {
+                return `Today at ${timeStr}`;
+            }
+
+            // Check if it's tomorrow
+            if (date.toDateString() === tomorrow.toDateString()) {
+                return `Tomorrow at ${timeStr}`;
+            }
+
+            // Otherwise show full date
+            const dateOptions = { weekday: 'short', month: 'short', day: 'numeric' };
+            const dateStr = date.toLocaleDateString('en-US', dateOptions);
+            return `${dateStr} at ${timeStr}`;
+        } catch (e) {
+            return isoString;
+        }
+    }
+
+    // Store current game state for button interactions
+    currentGameState = null;
+
+    displayGameUI(data) {
+        this.currentGameState = data;
+
+        const html = `
+            <div class="flex justify-start">
+                <div class="max-w-md w-full">
+                    <div class="flex items-center justify-between text-xs text-purple-400/60 mb-1 font-mono uppercase tracking-wider">
+                        <span>Higher/Lower</span>
+                        <span>Streak: ${data.streak} 🔥</span>
+                    </div>
+                    <div class="bg-gradient-to-br from-purple-900/30 to-purple-800/20 border border-purple-500/30 rounded-lg px-4 py-4">
+                        <div class="text-center mb-4">
+                            <div class="text-purple-300/60 text-sm mb-2">Is the next number...</div>
+                            <div class="text-5xl font-bold text-white mb-2">${data.current_number}</div>
+                        </div>
+                        <div class="flex gap-3 justify-center mb-3">
+                            <button onclick="makeGameMove('higher')" class="flex-1 bg-green-500/20 border border-green-500/30 text-green-400 rounded-lg px-4 py-3 text-sm font-mono uppercase tracking-wider hover:bg-green-500/30 transition-colors flex items-center justify-center gap-2">
+                                <span>▲</span> Higher
+                            </button>
+                            <button onclick="makeGameMove('lower')" class="flex-1 bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg px-4 py-3 text-sm font-mono uppercase tracking-wider hover:bg-red-500/30 transition-colors flex items-center justify-center gap-2">
+                                <span>▼</span> Lower
+                            </button>
+                        </div>
+                        <div class="text-center">
+                            <button onclick="makeGameMove('quit')" class="text-xs text-gray-500 hover:text-gray-400 transition-colors">
+                                Quit Game
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        this.appendMessage(html);
+
+        // Speak the intro
+        this.speech.speak(`I'm thinking of a number. The current number is ${data.current_number}. Is the next number higher or lower?`);
+    }
+
+    updateGameUI(data) {
+        this.currentGameState = data;
+
+        // Check if game is over
+        if (data.game_over) {
+            const html = `
+                <div class="flex justify-start">
+                    <div class="max-w-md w-full">
+                        <div class="text-xs text-purple-400/60 mb-1 font-mono uppercase tracking-wider">Game Over</div>
+                        <div class="bg-gradient-to-br from-purple-900/30 to-purple-800/20 border border-purple-500/30 rounded-lg px-4 py-4 text-center">
+                            <div class="text-2xl mb-2">🎮</div>
+                            <div class="text-white font-medium mb-1">Thanks for playing!</div>
+                            <div class="text-purple-300/60 text-sm">Best streak: ${data.best_streak} 🔥</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            this.appendMessage(html);
+            this.speech.speak(`Game over! Your best streak was ${data.best_streak}.`);
+            return;
+        }
+
+        // Show result and continue game
+        const isCorrect = data.is_correct;
+        const resultIcon = isCorrect ? '✓' : '✗';
+        const resultColor = isCorrect ? 'text-green-400' : 'text-red-400';
+        const resultBg = isCorrect ? 'bg-green-500/10' : 'bg-red-500/10';
+
+        const html = `
+            <div class="flex justify-start">
+                <div class="max-w-md w-full">
+                    <div class="flex items-center justify-between text-xs text-purple-400/60 mb-1 font-mono uppercase tracking-wider">
+                        <span>Higher/Lower</span>
+                        <span>Streak: ${data.streak} 🔥${data.best_streak > data.streak ? ` (Best: ${data.best_streak})` : ''}</span>
+                    </div>
+                    <div class="bg-gradient-to-br from-purple-900/30 to-purple-800/20 border border-purple-500/30 rounded-lg px-4 py-4">
+                        <!-- Result Banner -->
+                        <div class="${resultBg} rounded-lg px-3 py-2 mb-4 text-center">
+                            <span class="${resultColor} font-bold text-lg">${resultIcon} ${isCorrect ? 'Correct!' : 'Wrong!'}</span>
+                            <div class="text-gray-400 text-sm">${this.escapeHtml(data.message)}</div>
+                        </div>
+
+                        <div class="text-center mb-4">
+                            <div class="text-purple-300/60 text-sm mb-2">Is the next number...</div>
+                            <div class="text-5xl font-bold text-white mb-2">${data.current_number}</div>
+                        </div>
+                        <div class="flex gap-3 justify-center mb-3">
+                            <button onclick="makeGameMove('higher')" class="flex-1 bg-green-500/20 border border-green-500/30 text-green-400 rounded-lg px-4 py-3 text-sm font-mono uppercase tracking-wider hover:bg-green-500/30 transition-colors flex items-center justify-center gap-2">
+                                <span>▲</span> Higher
+                            </button>
+                            <button onclick="makeGameMove('lower')" class="flex-1 bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg px-4 py-3 text-sm font-mono uppercase tracking-wider hover:bg-red-500/30 transition-colors flex items-center justify-center gap-2">
+                                <span>▼</span> Lower
+                            </button>
+                        </div>
+                        <div class="text-center">
+                            <button onclick="makeGameMove('quit')" class="text-xs text-gray-500 hover:text-gray-400 transition-colors">
+                                Quit Game
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        this.appendMessage(html);
+
+        // Speak the result
+        if (isCorrect) {
+            this.speech.speak(`Correct! The number was ${data.current_number}. Your streak is ${data.streak}. Higher or lower?`);
+        } else {
+            this.speech.speak(`Wrong! The number was ${data.current_number}. Your streak resets. Higher or lower?`);
+        }
     }
 
     getWeatherEmoji(description) {
@@ -698,11 +927,36 @@ class PikaApp {
 
     updateWakeWordsList() {
         const listEl = document.getElementById('current-wake-words');
+        const countEl = document.getElementById('wake-word-count');
+
         if (listEl) {
             const words = this.speech.getWakeWords();
-            listEl.innerHTML = words.map(w =>
-                `<span class="text-xs bg-pika-400/20 text-pika-400 rounded px-2 py-1">${this.escapeHtml(w)}</span>`
-            ).join(' ');
+
+            // Update count
+            if (countEl) {
+                countEl.textContent = words.length;
+            }
+
+            // Render wake words with remove buttons (except for 'pika')
+            listEl.innerHTML = words.map(w => {
+                const isPika = w.toLowerCase() === 'pika';
+                const isDefault = this.speech.isDefaultWakeWord(w);
+
+                // Different styling for default vs custom wake words
+                const bgClass = isDefault ? 'bg-pika-400/20' : 'bg-blue-400/20';
+                const textClass = isDefault ? 'text-pika-400' : 'text-blue-400';
+
+                if (isPika) {
+                    // 'pika' cannot be removed
+                    return `<span class="text-xs ${bgClass} ${textClass} rounded px-2 py-1 cursor-default" title="Primary wake word (cannot be removed)">${this.escapeHtml(w)}</span>`;
+                } else {
+                    // Other words can be clicked to remove
+                    return `<span class="text-xs ${bgClass} ${textClass} rounded px-2 py-1 cursor-pointer hover:bg-red-400/30 hover:text-red-400 transition-colors group" onclick="removeWakeWord('${this.escapeHtml(w)}')" title="Click to remove">
+                        ${this.escapeHtml(w)}
+                        <span class="ml-1 opacity-0 group-hover:opacity-100">&times;</span>
+                    </span>`;
+                }
+            }).join(' ');
         }
     }
 }
@@ -974,16 +1228,78 @@ function resetTrainingUI() {
     if (progressEl) progressEl.style.width = '0%';
     if (samplesEl) samplesEl.innerHTML = '';
     if (countEl) countEl.textContent = '0/5';
-    if (instructionsEl) instructionsEl.innerHTML = 'Click Start and say "PIKA" 5 times. Captures first 2 words (e.g. "pick up").';
+    if (instructionsEl) instructionsEl.innerHTML = 'Click Start and say "PIKA" 5 times. Captures variations like "pick up", "peek a".';
     if (startBtn) startBtn.classList.remove('hidden');
     if (doneBtn) doneBtn.classList.add('hidden');
 }
 
 function resetWakeWords() {
-    showConfirm('Reset Wake Words', 'Reset all trained wake words to default?', () => {
+    showConfirm('Reset Wake Words', 'Reset all wake words to defaults?', () => {
         window.pikaSpeech.resetWakeWords();
         resetTrainingUI();
+        window.pikaApp.updateWakeWordsList();
     });
+}
+
+// Add wake word from text input
+function addWakeWordFromInput() {
+    const input = document.getElementById('wake-word-input');
+    if (!input) return;
+
+    const word = input.value.trim();
+    if (word) {
+        const added = window.pikaSpeech.addWakeWord(word);
+        if (added) {
+            input.value = '';
+            window.pikaApp.updateWakeWordsList();
+        } else {
+            // Word already exists or invalid
+            input.classList.add('border-red-500');
+            setTimeout(() => input.classList.remove('border-red-500'), 1000);
+        }
+    }
+}
+
+// Remove a wake word
+function removeWakeWord(word) {
+    const removed = window.pikaSpeech.removeWakeWord(word);
+    if (removed) {
+        window.pikaApp.updateWakeWordsList();
+    }
+}
+
+// Make a game move (Higher/Lower game) - calls API directly for reliable comparison
+async function makeGameMove(move) {
+    const state = window.pikaApp.currentGameState;
+    if (!state) {
+        console.error('No active game state');
+        return;
+    }
+
+    // Show user's move
+    window.pikaApp.addUserMessage(move);
+
+    try {
+        const response = await fetch('/api/game/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                move: move,
+                game_state: state
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.data) {
+            // Update game UI with the result
+            window.pikaApp.updateGameUI(result.data);
+        } else {
+            console.error('Game move failed:', result.error);
+        }
+    } catch (error) {
+        console.error('Failed to make game move:', error);
+    }
 }
 
 // Load saved settings

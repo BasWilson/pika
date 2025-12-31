@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"time"
 
 	"github.com/baswilson/pika/internal/actions"
 	"github.com/baswilson/pika/internal/ai"
@@ -13,22 +14,25 @@ import (
 	"github.com/baswilson/pika/internal/config"
 	"github.com/baswilson/pika/internal/database"
 	"github.com/baswilson/pika/internal/memory"
+	"github.com/baswilson/pika/internal/reminder"
 	"github.com/baswilson/pika/internal/ws"
 	"github.com/go-chi/chi/v5"
 )
 
 // Server is the main application server
 type Server struct {
-	config   *config.Config
-	router   *chi.Mux
-	hub      *ws.Hub
-	db       *sql.DB
-	dbDriver *database.SQLiteDriver
-	ai       *ai.Service
-	memory   *memory.Store
-	calendar *calendar.Service
-	actions  *actions.Registry
-	webFS    fs.FS
+	config            *config.Config
+	router            *chi.Mux
+	hub               *ws.Hub
+	db                *sql.DB
+	dbDriver          *database.SQLiteDriver
+	ai                *ai.Service
+	memory            *memory.Store
+	calendar          *calendar.Service
+	reminder          *reminder.Store
+	reminderScheduler *reminder.Scheduler
+	actions           *actions.Registry
+	webFS             fs.FS
 }
 
 // New creates a new Server instance
@@ -51,7 +55,9 @@ func New(cfg *config.Config, webFS fs.FS) (*Server, error) {
 	memoryStore := memory.NewStore(db)
 	aiService := ai.NewService(cfg, memoryStore)
 	calendarService := calendar.NewService(cfg, db)
-	actionsRegistry := actions.NewRegistry(memoryStore, calendarService)
+	reminderStore := reminder.NewStore(db)
+	reminderScheduler := reminder.NewScheduler(reminderStore)
+	actionsRegistry := actions.NewRegistry(memoryStore, calendarService, reminderStore)
 
 	// Wire up embedding generator for semantic memory search
 	memoryStore.SetEmbedder(aiService)
@@ -90,18 +96,51 @@ func New(cfg *config.Config, webFS fs.FS) (*Server, error) {
 	// Start calendar background sync
 	calendarService.StartBackgroundSync()
 
+	// Set up reminder notifications to broadcast to all clients
+	reminderScheduler.SetCallback(func(r *reminder.Reminder, tier string, timeUntil time.Duration) {
+		var message string
+		timeStr := reminder.FormatTimeUntil(timeUntil)
+
+		switch tier {
+		case "at_time":
+			message = fmt.Sprintf("Reminder: %s - it's time!", r.Title)
+		default:
+			message = fmt.Sprintf("Reminder: '%s' in %s.", r.Title, timeStr)
+		}
+
+		if r.Description != "" {
+			message += fmt.Sprintf(" %s", r.Description)
+		}
+
+		msg, err := ws.NewTrigger("reminder", "Reminder", message, map[string]interface{}{
+			"reminder_id": r.ID,
+			"title":       r.Title,
+			"remind_at":   r.RemindAt,
+			"tier":        tier,
+		})
+		if err == nil {
+			hub.BroadcastMessage(msg)
+			log.Printf("Reminder notification sent (%s): %s", tier, r.Title)
+		}
+	})
+
+	// Start reminder scheduler
+	reminderScheduler.Start()
+
 	// Create server
 	s := &Server{
-		config:   cfg,
-		router:   chi.NewRouter(),
-		hub:      hub,
-		db:       db,
-		dbDriver: driver,
-		ai:       aiService,
-		memory:   memoryStore,
-		calendar: calendarService,
-		actions:  actionsRegistry,
-		webFS:    webFS,
+		config:            cfg,
+		router:            chi.NewRouter(),
+		hub:               hub,
+		db:                db,
+		dbDriver:          driver,
+		ai:                aiService,
+		memory:            memoryStore,
+		calendar:          calendarService,
+		reminder:          reminderStore,
+		reminderScheduler: reminderScheduler,
+		actions:           actionsRegistry,
+		webFS:             webFS,
 	}
 
 	// Setup routes
@@ -119,6 +158,11 @@ func (s *Server) Router() *chi.Mux {
 func (s *Server) Shutdown(ctx context.Context) error {
 	// Stop calendar sync
 	s.calendar.StopBackgroundSync()
+
+	// Stop reminder scheduler
+	if s.reminderScheduler != nil {
+		s.reminderScheduler.Stop()
+	}
 
 	if s.dbDriver != nil {
 		if err := s.dbDriver.Close(); err != nil {

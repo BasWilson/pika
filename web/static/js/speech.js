@@ -6,7 +6,13 @@ class PikaSpeech {
         this.synthesis = window.speechSynthesis;
         this.isListening = false;
         this.alwaysListen = false;
-        this.wakeWords = ['pika'];  // Array of valid wake words (trained variants)
+        // Default wake words - common mishearings/variations of "pika"
+        this.defaultWakeWords = [
+            'pika', 'peeka', 'pica', 'pick a', 'pick up', 'peak a',
+            'peek a', 'picker', 'pikachu', 'pico', 'picka', 'peka',
+            'heyPika', 'hey pika', 'ok pika', 'okay pika'
+        ];
+        this.wakeWords = [...this.defaultWakeWords];  // Array of valid wake words (trained variants)
         this.wakeWordDetected = false;
         this.listeners = new Map();
         this.currentTranscript = '';
@@ -38,13 +44,13 @@ class PikaSpeech {
             if (saved) {
                 const parsed = JSON.parse(saved);
                 if (Array.isArray(parsed) && parsed.length > 0) {
-                    // Ensure 'pika' is always included
-                    this.wakeWords = [...new Set(['pika', ...parsed])];
+                    // Merge saved with defaults, ensuring no duplicates
+                    this.wakeWords = [...new Set([...this.defaultWakeWords, ...parsed])];
                 }
             }
         } catch (error) {
             console.error('Failed to load wake words:', error);
-            this.wakeWords = ['pika'];
+            this.wakeWords = [...this.defaultWakeWords];
         }
     }
 
@@ -92,7 +98,7 @@ class PikaSpeech {
 
     // Reset wake words to default
     resetWakeWords() {
-        this.wakeWords = ['pika'];
+        this.wakeWords = [...this.defaultWakeWords];
         this.saveWakeWords();
         this.emit('wake_words_reset');
     }
@@ -100,6 +106,46 @@ class PikaSpeech {
     // Get current wake words
     getWakeWords() {
         return [...this.wakeWords];
+    }
+
+    // Add a single wake word manually
+    addWakeWord(word) {
+        if (!word || typeof word !== 'string') return false;
+
+        const normalized = word.trim().toLowerCase();
+        if (normalized.length === 0) return false;
+
+        if (!this.wakeWords.includes(normalized)) {
+            this.wakeWords.push(normalized);
+            this.saveWakeWords();
+            this.emit('wake_word_added', { word: normalized });
+            return true;
+        }
+        return false;
+    }
+
+    // Remove a single wake word
+    removeWakeWord(word) {
+        if (!word || typeof word !== 'string') return false;
+
+        const normalized = word.trim().toLowerCase();
+
+        // Prevent removing 'pika' - always keep at least one
+        if (normalized === 'pika') return false;
+
+        const index = this.wakeWords.indexOf(normalized);
+        if (index > -1) {
+            this.wakeWords.splice(index, 1);
+            this.saveWakeWords();
+            this.emit('wake_word_removed', { word: normalized });
+            return true;
+        }
+        return false;
+    }
+
+    // Check if a word is a default wake word
+    isDefaultWakeWord(word) {
+        return this.defaultWakeWords.includes(word.toLowerCase());
     }
 
     // Activate wake word mode with timeout

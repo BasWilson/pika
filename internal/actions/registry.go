@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/baswilson/pika/internal/ai"
 	"github.com/baswilson/pika/internal/calendar"
 	"github.com/baswilson/pika/internal/memory"
+	"github.com/baswilson/pika/internal/reminder"
 )
 
 // ActionType represents the type of action
@@ -27,6 +29,13 @@ const (
 	ActionSearchPokemon    ActionType = "SEARCH_POKEMON"
 	ActionStopListening    ActionType = "STOP_LISTENING"
 	ActionNoAction         ActionType = "NO_ACTION"
+	ActionCreateReminder   ActionType = "CREATE_REMINDER"
+	ActionEditReminder     ActionType = "EDIT_REMINDER"
+	ActionDeleteReminder   ActionType = "DELETE_REMINDER"
+	ActionListReminders    ActionType = "LIST_REMINDERS"
+	ActionCompleteReminder ActionType = "COMPLETE_REMINDER"
+	ActionStartGame        ActionType = "START_GAME"
+	ActionGameMove         ActionType = "GAME_MOVE"
 )
 
 // ActionResult represents the result of executing an action
@@ -45,14 +54,16 @@ type Registry struct {
 	handlers map[ActionType]ActionHandler
 	memory   *memory.Store
 	calendar *calendar.Service
+	reminder *reminder.Store
 }
 
 // NewRegistry creates a new action registry
-func NewRegistry(memoryStore *memory.Store, calendarService *calendar.Service) *Registry {
+func NewRegistry(memoryStore *memory.Store, calendarService *calendar.Service, reminderStore *reminder.Store) *Registry {
 	r := &Registry{
 		handlers: make(map[ActionType]ActionHandler),
 		memory:   memoryStore,
 		calendar: calendarService,
+		reminder: reminderStore,
 	}
 
 	// Register built-in handlers
@@ -63,6 +74,13 @@ func NewRegistry(memoryStore *memory.Store, calendarService *calendar.Service) *
 	r.Register(ActionGetWeather, r.handleGetWeather)
 	r.Register(ActionSearchPokemon, r.handleSearchPokemon)
 	r.Register(ActionStopListening, r.handleStopListening)
+	r.Register(ActionCreateReminder, r.handleCreateReminder)
+	r.Register(ActionEditReminder, r.handleEditReminder)
+	r.Register(ActionDeleteReminder, r.handleDeleteReminder)
+	r.Register(ActionListReminders, r.handleListReminders)
+	r.Register(ActionCompleteReminder, r.handleCompleteReminder)
+	r.Register(ActionStartGame, r.handleStartGame)
+	r.Register(ActionGameMove, r.handleGameMove)
 
 	return r
 }
@@ -524,4 +542,333 @@ func (r *Registry) handleStopListening(ctx context.Context, data map[string]inte
 		Success: true,
 		Data:    map[string]bool{"stop_listening": true},
 	}
+}
+
+// handleCreateReminder creates a new reminder
+func (r *Registry) handleCreateReminder(ctx context.Context, data map[string]interface{}) *ActionResult {
+	title, _ := data["title"].(string)
+	description, _ := data["description"].(string)
+	remindAtStr, _ := data["remind_at"].(string)
+
+	if title == "" || remindAtStr == "" {
+		return &ActionResult{
+			Success: false,
+			Error:   "title and remind_at are required",
+		}
+	}
+
+	remindAt, err := time.Parse(time.RFC3339, remindAtStr)
+	if err != nil {
+		return &ActionResult{
+			Success: false,
+			Error:   fmt.Sprintf("invalid remind_at format: %v", err),
+		}
+	}
+
+	rem, err := r.reminder.Create(ctx, title, description, remindAt)
+	if err != nil {
+		return &ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}
+	}
+
+	return &ActionResult{
+		Success: true,
+		Data:    rem,
+	}
+}
+
+// handleEditReminder updates an existing reminder
+func (r *Registry) handleEditReminder(ctx context.Context, data map[string]interface{}) *ActionResult {
+	id, _ := data["id"].(string)
+	searchTitle, _ := data["search_title"].(string)
+
+	// If no id provided, try to find by title
+	if id == "" && searchTitle != "" {
+		reminders, err := r.reminder.FindByTitle(ctx, searchTitle)
+		if err != nil || len(reminders) == 0 {
+			return &ActionResult{
+				Success: false,
+				Error:   fmt.Sprintf("could not find reminder matching '%s'", searchTitle),
+			}
+		}
+		id = reminders[0].ID
+	}
+
+	if id == "" {
+		return &ActionResult{
+			Success: false,
+			Error:   "id or search_title is required",
+		}
+	}
+
+	// Get optional update fields
+	var title, description *string
+	var remindAt *time.Time
+
+	if v, ok := data["title"].(string); ok && v != "" {
+		title = &v
+	}
+	if v, ok := data["description"].(string); ok {
+		description = &v
+	}
+	if v, ok := data["remind_at"].(string); ok && v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return &ActionResult{
+				Success: false,
+				Error:   fmt.Sprintf("invalid remind_at format: %v", err),
+			}
+		}
+		remindAt = &t
+	}
+
+	rem, err := r.reminder.Update(ctx, id, title, description, remindAt)
+	if err != nil {
+		return &ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}
+	}
+
+	return &ActionResult{
+		Success: true,
+		Data:    rem,
+	}
+}
+
+// handleDeleteReminder deletes a reminder
+func (r *Registry) handleDeleteReminder(ctx context.Context, data map[string]interface{}) *ActionResult {
+	id, _ := data["id"].(string)
+	searchTitle, _ := data["search_title"].(string)
+
+	// If no id provided, try to find by title
+	if id == "" && searchTitle != "" {
+		reminders, err := r.reminder.FindByTitle(ctx, searchTitle)
+		if err != nil || len(reminders) == 0 {
+			return &ActionResult{
+				Success: false,
+				Error:   fmt.Sprintf("could not find reminder matching '%s'", searchTitle),
+			}
+		}
+		id = reminders[0].ID
+	}
+
+	if id == "" {
+		return &ActionResult{
+			Success: false,
+			Error:   "id or search_title is required",
+		}
+	}
+
+	if err := r.reminder.Delete(ctx, id); err != nil {
+		return &ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}
+	}
+
+	return &ActionResult{
+		Success: true,
+		Data:    map[string]string{"deleted": id},
+	}
+}
+
+// handleListReminders returns all active reminders
+func (r *Registry) handleListReminders(ctx context.Context, data map[string]interface{}) *ActionResult {
+	includeCompleted, _ := data["include_completed"].(bool)
+
+	reminders, err := r.reminder.List(ctx, includeCompleted)
+	if err != nil {
+		return &ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}
+	}
+
+	return &ActionResult{
+		Success: true,
+		Data:    reminders,
+	}
+}
+
+// handleCompleteReminder marks a reminder as completed
+func (r *Registry) handleCompleteReminder(ctx context.Context, data map[string]interface{}) *ActionResult {
+	id, _ := data["id"].(string)
+	searchTitle, _ := data["search_title"].(string)
+
+	// If no id provided, try to find by title
+	if id == "" && searchTitle != "" {
+		reminders, err := r.reminder.FindByTitle(ctx, searchTitle)
+		if err != nil || len(reminders) == 0 {
+			return &ActionResult{
+				Success: false,
+				Error:   fmt.Sprintf("could not find reminder matching '%s'", searchTitle),
+			}
+		}
+		id = reminders[0].ID
+	}
+
+	if id == "" {
+		return &ActionResult{
+			Success: false,
+			Error:   "id or search_title is required",
+		}
+	}
+
+	if err := r.reminder.MarkCompleted(ctx, id); err != nil {
+		return &ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}
+	}
+
+	return &ActionResult{
+		Success: true,
+		Data:    map[string]string{"completed": id},
+	}
+}
+
+// GameState represents the state of a higher/lower game
+type GameState struct {
+	GameType      string `json:"game_type"`
+	CurrentNumber int    `json:"current_number"`
+	TargetNumber  int    `json:"target_number"`
+	Streak        int    `json:"streak"`
+	BestStreak    int    `json:"best_streak"`
+	IsCorrect     *bool  `json:"is_correct,omitempty"`
+	GameOver      bool   `json:"game_over"`
+	Message       string `json:"message,omitempty"`
+}
+
+// handleStartGame starts a new higher/lower game
+func (r *Registry) handleStartGame(ctx context.Context, data map[string]interface{}) *ActionResult {
+	gameType, _ := data["game_type"].(string)
+	if gameType == "" {
+		gameType = "higher_lower"
+	}
+
+	// Generate random starting number (avoid extremes)
+	rand.Seed(time.Now().UnixNano())
+	currentNumber := rand.Intn(80) + 10 // 10-90 range to allow room for higher/lower
+
+	// Generate target number (different from current)
+	targetNumber := rand.Intn(100) + 1
+	for targetNumber == currentNumber {
+		targetNumber = rand.Intn(100) + 1
+	}
+
+	gameState := &GameState{
+		GameType:      gameType,
+		CurrentNumber: currentNumber,
+		TargetNumber:  targetNumber,
+		Streak:        0,
+		BestStreak:    0,
+		GameOver:      false,
+	}
+
+	log.Printf("[GAME] Started higher/lower game: current=%d, target=%d", currentNumber, targetNumber)
+
+	return &ActionResult{
+		Success: true,
+		Data:    gameState,
+	}
+}
+
+// handleGameMove processes a game move (higher/lower/quit)
+func (r *Registry) handleGameMove(ctx context.Context, data map[string]interface{}) *ActionResult {
+	move, _ := data["move"].(string)
+	currentNumber := int(getFloat(data, "current_number"))
+	targetNumber := int(getFloat(data, "target_number"))
+	streak := int(getFloat(data, "streak"))
+	bestStreak := int(getFloat(data, "best_streak"))
+
+	log.Printf("[GAME] Move: %s, current=%d, target=%d, streak=%d", move, currentNumber, targetNumber, streak)
+
+	// Handle quit
+	if move == "quit" {
+		return &ActionResult{
+			Success: true,
+			Data: &GameState{
+				GameType:      "higher_lower",
+				CurrentNumber: currentNumber,
+				TargetNumber:  targetNumber,
+				Streak:        streak,
+				BestStreak:    bestStreak,
+				GameOver:      true,
+				Message:       fmt.Sprintf("Game over! Your best streak was %d.", bestStreak),
+			},
+		}
+	}
+
+	// Determine if guess is correct
+	var isCorrect bool
+	if move == "higher" {
+		isCorrect = targetNumber > currentNumber
+	} else if move == "lower" {
+		isCorrect = targetNumber < currentNumber
+	} else {
+		return &ActionResult{
+			Success: false,
+			Error:   "Invalid move. Say 'higher', 'lower', or 'quit'.",
+		}
+	}
+
+	// Update streak
+	var newStreak int
+	var newBestStreak int
+	var message string
+
+	if isCorrect {
+		newStreak = streak + 1
+		if newStreak > bestStreak {
+			newBestStreak = newStreak
+		} else {
+			newBestStreak = bestStreak
+		}
+		message = fmt.Sprintf("Correct! The number was %d.", targetNumber)
+	} else {
+		newStreak = 0
+		newBestStreak = bestStreak
+		message = fmt.Sprintf("Wrong! The number was %d. Your streak was %d.", targetNumber, streak)
+	}
+
+	// Generate new numbers for next round
+	rand.Seed(time.Now().UnixNano())
+	newCurrentNumber := targetNumber // The revealed number becomes the new current
+	newTargetNumber := rand.Intn(100) + 1
+	for newTargetNumber == newCurrentNumber {
+		newTargetNumber = rand.Intn(100) + 1
+	}
+
+	gameState := &GameState{
+		GameType:      "higher_lower",
+		CurrentNumber: newCurrentNumber,
+		TargetNumber:  newTargetNumber,
+		Streak:        newStreak,
+		BestStreak:    newBestStreak,
+		IsCorrect:     &isCorrect,
+		GameOver:      false,
+		Message:       message,
+	}
+
+	log.Printf("[GAME] Result: correct=%v, new_current=%d, new_target=%d, streak=%d",
+		isCorrect, newCurrentNumber, newTargetNumber, newStreak)
+
+	return &ActionResult{
+		Success: true,
+		Data:    gameState,
+	}
+}
+
+// getFloat safely extracts a float64 from interface{} (handles both int and float)
+func getFloat(data map[string]interface{}, key string) float64 {
+	if v, ok := data[key].(float64); ok {
+		return v
+	}
+	if v, ok := data[key].(int); ok {
+		return float64(v)
+	}
+	return 0
 }
