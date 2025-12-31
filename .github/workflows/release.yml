@@ -1,0 +1,254 @@
+name: Build and Release PIKA
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  GO_VERSION: '1.24.0'
+  WAILS_VERSION: 'v2.11.0'
+  OLLAMA_VERSION: 'v0.5.4'
+
+jobs:
+  build:
+    name: Build macOS App
+    runs-on: macos-14  # Apple Silicon (M1) runner for native arm64 builds
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Verify Wails Installation
+        run: wails doctor
+
+      - name: Build PIKA
+        run: wails build -platform darwin/arm64 -skipbindings
+
+      # Code Signing - only runs if secrets are configured
+      - name: Import Code Signing Certificate
+        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo $APPLE_CERTIFICATE_P12 | base64 --decode > certificate.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
+
+      - name: Sign Application
+        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Find the signing identity
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          echo "Signing with identity: $IDENTITY"
+
+          # Sign the app with hardened runtime
+          codesign --force --deep --options runtime \
+            --sign "$IDENTITY" \
+            --keychain build.keychain \
+            build/bin/PIKA.app
+
+          # Verify signing
+          codesign --verify --verbose build/bin/PIKA.app
+
+      - name: Notarize Application
+        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Create zip for notarization
+          ditto -c -k --keepParent build/bin/PIKA.app PIKA-notarize.zip
+
+          # Submit for notarization and wait
+          xcrun notarytool submit PIKA-notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          # Staple the notarization ticket to the app
+          xcrun stapler staple build/bin/PIKA.app
+
+          # Clean up
+          rm PIKA-notarize.zip
+
+      - name: Get Version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      # Package lite version (without Ollama)
+      - name: Package Lite Version
+        run: |
+          cd build/bin
+          zip -r "PIKA-${{ steps.version.outputs.version }}-darwin-arm64-lite.zip" PIKA.app
+
+      # Download and bundle Ollama for full version
+      - name: Download Ollama Binary
+        run: |
+          mkdir -p build/bin/PIKA.app/Contents/Resources/ollama
+          curl -L -o build/bin/PIKA.app/Contents/Resources/ollama/ollama \
+            "https://github.com/ollama/ollama/releases/download/${{ env.OLLAMA_VERSION }}/ollama-darwin"
+          chmod +x build/bin/PIKA.app/Contents/Resources/ollama/ollama
+
+      # Re-sign after adding Ollama (modifying bundle invalidates signature)
+      - name: Re-sign Full Version
+        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+
+          # Sign the bundled Ollama binary first
+          codesign --force --options runtime \
+            --sign "$IDENTITY" \
+            --keychain build.keychain \
+            build/bin/PIKA.app/Contents/Resources/ollama/ollama
+
+          # Re-sign the entire app
+          codesign --force --deep --options runtime \
+            --sign "$IDENTITY" \
+            --keychain build.keychain \
+            build/bin/PIKA.app
+
+          codesign --verify --verbose build/bin/PIKA.app
+
+      - name: Notarize Full Version
+        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ditto -c -k --keepParent build/bin/PIKA.app PIKA-full-notarize.zip
+          xcrun notarytool submit PIKA-full-notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple build/bin/PIKA.app
+          rm PIKA-full-notarize.zip
+
+      # Package full version (with Ollama)
+      - name: Package Full Version
+        run: |
+          cd build/bin
+          zip -r "PIKA-${{ steps.version.outputs.version }}-darwin-arm64-full.zip" PIKA.app
+
+      - name: Show Artifact Sizes
+        run: |
+          echo "=== Build Artifacts ==="
+          echo ""
+          echo "Lite version (without Ollama):"
+          ls -lh build/bin/PIKA-*-lite.zip
+          echo ""
+          echo "Full version (with Ollama):"
+          ls -lh build/bin/PIKA-*-full.zip
+
+      - name: Upload Lite Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PIKA-lite
+          path: build/bin/PIKA-*-lite.zip
+          retention-days: 30
+
+      - name: Upload Full Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PIKA-full
+          path: build/bin/PIKA-*-full.zip
+          retention-days: 30
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Lite Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: PIKA-lite
+          path: ./artifacts
+
+      - name: Download Full Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: PIKA-full
+          path: ./artifacts
+
+      - name: List Artifacts
+        run: ls -la ./artifacts/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: PIKA ${{ needs.build.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(needs.build.outputs.version, '-') }}
+          generate_release_notes: true
+          body: |
+            ## PIKA ${{ needs.build.outputs.version }}
+
+            **Personal Intelligence Assistant** - A voice-controlled AI assistant for your desktop.
+
+            ### Downloads
+
+            | File | Description |
+            |------|-------------|
+            | `PIKA-*-lite.zip` | Lighter download (~18MB). Requires [Ollama](https://ollama.ai) installed separately |
+            | `PIKA-*-full.zip` | Includes bundled Ollama (~150MB) for offline AI embeddings |
+
+            ### System Requirements
+
+            - macOS 10.15 (Catalina) or later
+            - **Apple Silicon Mac required** (M1/M2/M3/M4)
+
+            ### Installation
+
+            1. Download the `.zip` file for your preferred variant
+            2. Extract and drag `PIKA.app` to your Applications folder
+            3. Double-click to open (signed and notarized for your security)
+
+            ### Lite Version Setup
+
+            If you chose the lite version, install Ollama first:
+            ```bash
+            brew install ollama
+            ```
+
+            Ollama will start automatically when PIKA launches.
+
+            ### Getting Started
+
+            1. Launch PIKA - a setup wizard will guide you through configuration
+            2. You'll need a [Requesty.ai](https://requesty.ai) API key for AI responses
+            3. Optionally connect Google Calendar for calendar integration
+            4. Say "Pika" to activate voice commands!
+          files: |
+            ./artifacts/*.zip

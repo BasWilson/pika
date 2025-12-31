@@ -3,11 +3,13 @@ package memory
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/lib/pq"
 )
 
 // Memory represents a stored memory
@@ -55,27 +57,31 @@ func (s *Store) Create(ctx context.Context, content string, importance float64, 
 		}
 	}
 
-	query := `
-		INSERT INTO memories (id, content, embedding, importance, tags, created_at, last_accessed, access_count)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 0)
-		RETURNING id, content, importance, tags, created_at, last_accessed, access_count
-	`
-
-	memory := &Memory{}
-	err := s.db.QueryRowContext(ctx, query, id, content, embedding, importance, pq.Array(tags), now, now).Scan(
-		&memory.ID,
-		&memory.Content,
-		&memory.Importance,
-		pq.Array(&memory.Tags),
-		&memory.CreatedAt,
-		&memory.LastAccessed,
-		&memory.AccessCount,
-	)
+	// Marshal tags to JSON for SQLite storage
+	tagsJSON, err := json.Marshal(tags)
 	if err != nil {
 		return nil, err
 	}
 
-	return memory, nil
+	query := `
+		INSERT INTO memories (id, content, embedding, importance, tags, created_at, last_accessed, access_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+	`
+
+	_, err = s.db.ExecContext(ctx, query, id, content, embedding, importance, string(tagsJSON), now, now)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Memory{
+		ID:           id,
+		Content:      content,
+		Importance:   importance,
+		Tags:         tags,
+		CreatedAt:    now,
+		LastAccessed: now,
+		AccessCount:  0,
+	}, nil
 }
 
 // List returns the most recent memories
@@ -84,7 +90,7 @@ func (s *Store) List(ctx context.Context, limit int) ([]*Memory, error) {
 		SELECT id, content, importance, tags, created_at, last_accessed, access_count
 		FROM memories
 		ORDER BY created_at DESC
-		LIMIT $1
+		LIMIT ?
 	`
 
 	rows, err := s.db.QueryContext(ctx, query, limit)
@@ -96,8 +102,12 @@ func (s *Store) List(ctx context.Context, limit int) ([]*Memory, error) {
 	var memories []*Memory
 	for rows.Next() {
 		m := &Memory{}
-		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, pq.Array(&m.Tags), &m.CreatedAt, &m.LastAccessed, &m.AccessCount); err != nil {
+		var tagsJSON string
+		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &tagsJSON, &m.CreatedAt, &m.LastAccessed, &m.AccessCount); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal([]byte(tagsJSON), &m.Tags); err != nil {
+			m.Tags = []string{} // Default to empty if parse fails
 		}
 		memories = append(memories, m)
 	}
@@ -110,15 +120,19 @@ func (s *Store) Get(ctx context.Context, id string) (*Memory, error) {
 	query := `
 		SELECT id, content, importance, tags, created_at, last_accessed, access_count
 		FROM memories
-		WHERE id = $1
+		WHERE id = ?
 	`
 
 	m := &Memory{}
+	var tagsJSON string
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&m.ID, &m.Content, &m.Importance, pq.Array(&m.Tags), &m.CreatedAt, &m.LastAccessed, &m.AccessCount,
+		&m.ID, &m.Content, &m.Importance, &tagsJSON, &m.CreatedAt, &m.LastAccessed, &m.AccessCount,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if err := json.Unmarshal([]byte(tagsJSON), &m.Tags); err != nil {
+		m.Tags = []string{}
 	}
 
 	// Update access count and last accessed
@@ -128,61 +142,103 @@ func (s *Store) Get(ctx context.Context, id string) (*Memory, error) {
 }
 
 // SearchRelevant searches for relevant memories (simple keyword search)
-// In production, this would use vector similarity search
 func (s *Store) SearchRelevant(ctx context.Context, query string, limit int) ([]string, error) {
-	// Simple search - in production use pgvector similarity search
+	// SQLite uses LIKE for case-insensitive search (case-insensitive by default for ASCII)
 	sqlQuery := `
-		SELECT content
+		SELECT content, tags
 		FROM memories
-		WHERE content ILIKE '%' || $1 || '%'
-		   OR EXISTS (SELECT 1 FROM unnest(tags) AS tag WHERE tag ILIKE '%' || $1 || '%')
+		WHERE content LIKE '%' || ? || '%'
 		ORDER BY importance DESC, last_accessed DESC
-		LIMIT $2
+		LIMIT ?
 	`
 
-	rows, err := s.db.QueryContext(ctx, sqlQuery, query, limit)
+	rows, err := s.db.QueryContext(ctx, sqlQuery, query, limit*2) // Get more to filter by tags
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
+	queryLower := strings.ToLower(query)
 	var contents []string
 	for rows.Next() {
-		var content string
-		if err := rows.Scan(&content); err != nil {
+		var content, tagsJSON string
+		if err := rows.Scan(&content, &tagsJSON); err != nil {
 			return nil, err
 		}
-		contents = append(contents, content)
+
+		// Check if query matches content or any tag
+		contentMatches := strings.Contains(strings.ToLower(content), queryLower)
+
+		var tags []string
+		if err := json.Unmarshal([]byte(tagsJSON), &tags); err == nil {
+			for _, tag := range tags {
+				if strings.Contains(strings.ToLower(tag), queryLower) {
+					contentMatches = true
+					break
+				}
+			}
+		}
+
+		if contentMatches {
+			contents = append(contents, content)
+			if len(contents) >= limit {
+				break
+			}
+		}
 	}
 
 	return contents, nil
 }
 
-// SearchByVector searches using vector similarity (requires embedding)
+// SearchByVector searches using vector similarity (in-memory cosine similarity)
 func (s *Store) SearchByVector(ctx context.Context, embedding []float32, limit int) ([]*Memory, error) {
+	// Fetch all memories with embeddings
 	query := `
-		SELECT id, content, importance, tags, created_at, last_accessed, access_count
+		SELECT id, content, importance, tags, created_at, last_accessed, access_count, embedding
 		FROM memories
 		WHERE embedding IS NOT NULL
-		ORDER BY embedding <=> $1
-		LIMIT $2
 	`
 
-	// Convert to Vector type for proper pgvector formatting
-	vec := Vector(embedding)
-	rows, err := s.db.QueryContext(ctx, query, vec, limit)
+	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var memories []*Memory
+	type memoryWithScore struct {
+		memory     *Memory
+		similarity float32
+	}
+	var results []memoryWithScore
+
 	for rows.Next() {
 		m := &Memory{}
-		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, pq.Array(&m.Tags), &m.CreatedAt, &m.LastAccessed, &m.AccessCount); err != nil {
+		var tagsJSON string
+		var embeddingBlob []byte
+		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &tagsJSON, &m.CreatedAt, &m.LastAccessed, &m.AccessCount, &embeddingBlob); err != nil {
 			return nil, err
 		}
-		memories = append(memories, m)
+		if err := json.Unmarshal([]byte(tagsJSON), &m.Tags); err != nil {
+			m.Tags = []string{}
+		}
+
+		// Convert blob to vector and compute similarity
+		memEmbedding := BlobToVector(embeddingBlob)
+		if memEmbedding != nil {
+			similarity := CosineSimilarity(embedding, memEmbedding)
+			results = append(results, memoryWithScore{memory: m, similarity: similarity})
+		}
+	}
+
+	// Sort by similarity descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].similarity > results[j].similarity
+	})
+
+	// Return top N
+	var memories []*Memory
+	for i := 0; i < len(results) && i < limit; i++ {
+		memories = append(memories, results[i].memory)
 	}
 
 	return memories, nil
@@ -190,7 +246,7 @@ func (s *Store) SearchByVector(ctx context.Context, embedding []float32, limit i
 
 // Delete removes a memory
 func (s *Store) Delete(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM memories WHERE id = $1", id)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM memories WHERE id = ?", id)
 	return err
 }
 
@@ -199,8 +255,8 @@ func (s *Store) updateAccess(id string) {
 	ctx := context.Background()
 	_, _ = s.db.ExecContext(ctx, `
 		UPDATE memories
-		SET last_accessed = NOW(), access_count = access_count + 1
-		WHERE id = $1
+		SET last_accessed = datetime('now'), access_count = access_count + 1
+		WHERE id = ?
 	`, id)
 }
 
@@ -210,7 +266,7 @@ func (s *Store) GetTopImportant(ctx context.Context, limit int) ([]*Memory, erro
 		SELECT id, content, importance, tags, created_at, last_accessed, access_count
 		FROM memories
 		ORDER BY importance DESC, access_count DESC
-		LIMIT $1
+		LIMIT ?
 	`
 
 	rows, err := s.db.QueryContext(ctx, query, limit)
@@ -222,8 +278,12 @@ func (s *Store) GetTopImportant(ctx context.Context, limit int) ([]*Memory, erro
 	var memories []*Memory
 	for rows.Next() {
 		m := &Memory{}
-		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, pq.Array(&m.Tags), &m.CreatedAt, &m.LastAccessed, &m.AccessCount); err != nil {
+		var tagsJSON string
+		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &tagsJSON, &m.CreatedAt, &m.LastAccessed, &m.AccessCount); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal([]byte(tagsJSON), &m.Tags); err != nil {
+			m.Tags = []string{}
 		}
 		memories = append(memories, m)
 	}
@@ -235,7 +295,7 @@ func (s *Store) GetTopImportant(ctx context.Context, limit int) ([]*Memory, erro
 // Used for backfilling embeddings on memories that were created before embedding support.
 func (s *Store) UpdateEmbedding(ctx context.Context, id string, embedding []float32) error {
 	vec := Vector(embedding)
-	_, err := s.db.ExecContext(ctx, "UPDATE memories SET embedding = $1 WHERE id = $2", vec, id)
+	_, err := s.db.ExecContext(ctx, "UPDATE memories SET embedding = ? WHERE id = ?", vec, id)
 	return err
 }
 
@@ -247,7 +307,7 @@ func (s *Store) GetWithoutEmbedding(ctx context.Context, limit int) ([]*Memory, 
 		FROM memories
 		WHERE embedding IS NULL
 		ORDER BY importance DESC, created_at DESC
-		LIMIT $1
+		LIMIT ?
 	`
 
 	rows, err := s.db.QueryContext(ctx, query, limit)
@@ -259,8 +319,12 @@ func (s *Store) GetWithoutEmbedding(ctx context.Context, limit int) ([]*Memory, 
 	var memories []*Memory
 	for rows.Next() {
 		m := &Memory{}
-		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, pq.Array(&m.Tags), &m.CreatedAt, &m.LastAccessed, &m.AccessCount); err != nil {
+		var tagsJSON string
+		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &tagsJSON, &m.CreatedAt, &m.LastAccessed, &m.AccessCount); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal([]byte(tagsJSON), &m.Tags); err != nil {
+			m.Tags = []string{}
 		}
 		memories = append(memories, m)
 	}

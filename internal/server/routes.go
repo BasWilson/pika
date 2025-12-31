@@ -3,9 +3,12 @@ package server
 import (
 	"encoding/json"
 	"html/template"
+	"io"
+	"io/fs"
 	"log"
 	"net/http"
-	"path/filepath"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/baswilson/pika/internal/ai"
@@ -23,9 +26,14 @@ func (s *Server) setupRoutes() {
 	r.Use(ResponseFormatMiddleware)
 	r.Use(LoggingMiddleware)
 
-	// Static files
-	fileServer := http.FileServer(http.Dir("web/static"))
-	r.Handle("/static/*", http.StripPrefix("/static/", fileServer))
+	// Static files from embedded filesystem
+	staticFS, err := fs.Sub(s.webFS, "web/static")
+	if err != nil {
+		log.Printf("Warning: could not create static sub-filesystem: %v", err)
+	} else {
+		fileServer := http.FileServer(http.FS(staticFS))
+		r.Handle("/static/*", http.StripPrefix("/static/", fileServer))
+	}
 
 	// Main UI
 	r.Get("/", s.handleIndex)
@@ -52,14 +60,15 @@ func (s *Server) setupRoutes() {
 		r.Get("/google", s.handleGoogleAuth)
 		r.Get("/google/callback", s.handleGoogleCallback)
 	})
+
+	// Utility routes
+	r.Post("/open-url", s.handleOpenURL)
 }
 
 // handleIndex serves the main UI
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	tmplPath := filepath.Join("web", "templates", "index.html")
-	basePath := filepath.Join("web", "templates", "base.html")
-
-	tmpl, err := template.ParseFiles(basePath, tmplPath)
+	// Parse templates from embedded filesystem
+	tmpl, err := template.ParseFS(s.webFS, "web/templates/base.html", "web/templates/index.html")
 	if err != nil {
 		log.Printf("Template error: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -334,6 +343,70 @@ func (s *Server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Redirect back to main page
-	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+	// Broadcast success message to all connected clients (triggers TTS)
+	responseMsg, _ := ws.NewResponse("Google Calendar is now connected! I can help you manage your schedule.", "helpful")
+	s.hub.BroadcastMessage(responseMsg)
+
+	// Also send an action to dismiss the connect popup
+	actionMsg, _ := ws.NewMessage(ws.MessageTypeAction, ws.ActionPayload{
+		ActionType: "GOOGLE_CONNECTED",
+		Success:    true,
+	})
+	s.hub.BroadcastMessage(actionMsg)
+
+	// Show success page that closes itself
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(`<!DOCTYPE html>
+<html>
+<head>
+	<title>PIKA - Connected</title>
+	<style>
+		body {
+			background: #0a0a0f;
+			color: #fbbf24;
+			font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			height: 100vh;
+			margin: 0;
+			text-align: center;
+		}
+		.container { max-width: 400px; }
+		h1 { font-size: 2rem; margin-bottom: 10px; }
+		p { color: #888; margin-bottom: 20px; }
+		.success { font-size: 3rem; margin-bottom: 20px; }
+	</style>
+</head>
+<body>
+	<div class="container">
+		<div class="success">✓</div>
+		<h1>Google Calendar Connected!</h1>
+		<p>You can close this tab and return to PIKA.</p>
+	</div>
+	<script>
+		// Try to close this tab after a short delay
+		setTimeout(function() {
+			window.close();
+		}, 2000);
+	</script>
+</body>
+</html>`))
+}
+
+// handleOpenURL opens a URL in the system browser
+func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+	url := strings.TrimSpace(string(body))
+	if url == "" {
+		http.Error(w, "No URL provided", http.StatusBadRequest)
+		return
+	}
+	// Open URL in system browser using macOS 'open' command
+	exec.Command("open", url).Start()
+	w.WriteHeader(http.StatusOK)
 }

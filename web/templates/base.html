@@ -162,6 +162,27 @@
     <script src="/static/js/websocket.js"></script>
     <script src="/static/js/speech.js"></script>
     <script src="/static/js/app.js"></script>
+
+    <!-- Open OAuth and external links in system browser -->
+    <script>
+        document.addEventListener('click', function(e) {
+            var target = e.target;
+            while (target && target.tagName !== 'A') {
+                target = target.parentElement;
+            }
+            if (target && target.href) {
+                var url = target.href;
+                // Open OAuth URLs and external links in system browser
+                if (url.includes('/auth/google') ||
+                    url.includes('accounts.google.com') ||
+                    url.includes('googleapis.com') ||
+                    (target.target === '_blank')) {
+                    e.preventDefault();
+                    fetch('/open-url', { method: 'POST', body: url });
+                }
+            }
+        });
+    </script>
 </body>
 </html>
 {{end}}

@@ -323,6 +323,12 @@ class PikaApp {
             return;
         }
 
+        // Handle Google Calendar connected
+        if (success && actionType === 'GOOGLE_CONNECTED') {
+            this.handleGoogleConnected();
+            return;
+        }
+
         // Default action message for other types
         const borderColor = success ? 'border-green-500/30' : 'border-red-500/30';
         const textColor = success ? 'text-green-400' : 'text-red-400';
@@ -458,6 +464,15 @@ class PikaApp {
         this.speech.stop();
         this.setOrbState('idle');
         this.setStatus('Sleeping');
+    }
+
+    handleGoogleConnected() {
+        // Dismiss the calendar notice
+        const notice = document.getElementById('calendar-notice');
+        if (notice) {
+            notice.classList.add('hidden');
+            localStorage.setItem('pika_calendar_notice_dismissed', 'true');
+        }
     }
 
     addErrorMessage(text) {
@@ -630,6 +645,13 @@ function dismissCalendarNotice() {
 // Voice settings functions
 function toggleSettings() {
     const panel = document.getElementById('settings-panel');
+    if (panel) {
+        panel.classList.toggle('hidden');
+    }
+}
+
+function toggleAlwaysListenInfo() {
+    const panel = document.getElementById('always-listen-info');
     if (panel) {
         panel.classList.toggle('hidden');
     }

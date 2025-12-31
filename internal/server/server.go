@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"fmt"
 	"log"
 
@@ -10,10 +11,10 @@ import (
 	"github.com/baswilson/pika/internal/ai"
 	"github.com/baswilson/pika/internal/calendar"
 	"github.com/baswilson/pika/internal/config"
+	"github.com/baswilson/pika/internal/database"
 	"github.com/baswilson/pika/internal/memory"
 	"github.com/baswilson/pika/internal/ws"
 	"github.com/go-chi/chi/v5"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // Server is the main application server
@@ -22,25 +23,29 @@ type Server struct {
 	router   *chi.Mux
 	hub      *ws.Hub
 	db       *sql.DB
+	dbDriver *database.SQLiteDriver
 	ai       *ai.Service
 	memory   *memory.Store
 	calendar *calendar.Service
 	actions  *actions.Registry
+	webFS    embed.FS
 }
 
 // New creates a new Server instance
-func New(cfg *config.Config) (*Server, error) {
-	// Connect to database
-	db, err := sql.Open("pgx", cfg.DatabaseURL)
+func New(cfg *config.Config, webFS embed.FS) (*Server, error) {
+	// Connect to SQLite database
+	driver, err := database.NewSQLiteDriver(cfg.DatabasePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+	// Initialize database schema
+	if err := driver.Initialize(context.Background()); err != nil {
+		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
-	log.Println("Connected to database")
+	db := driver.DB()
+	log.Printf("Connected to SQLite database: %s", cfg.DatabasePath)
 
 	// Create services
 	memoryStore := memory.NewStore(db)
@@ -91,10 +96,12 @@ func New(cfg *config.Config) (*Server, error) {
 		router:   chi.NewRouter(),
 		hub:      hub,
 		db:       db,
+		dbDriver: driver,
 		ai:       aiService,
 		memory:   memoryStore,
 		calendar: calendarService,
 		actions:  actionsRegistry,
+		webFS:    webFS,
 	}
 
 	// Setup routes
@@ -113,8 +120,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// Stop calendar sync
 	s.calendar.StopBackgroundSync()
 
-	if s.db != nil {
-		if err := s.db.Close(); err != nil {
+	if s.dbDriver != nil {
+		if err := s.dbDriver.Close(); err != nil {
 			return fmt.Errorf("failed to close database: %w", err)
 		}
 	}

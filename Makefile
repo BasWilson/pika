@@ -1,57 +1,40 @@
-.PHONY: dev dev-db dev-ollama dev-services dev-server build run stop clean test logs help backfill
+.PHONY: help dev dev-server build build-intel test clean install install-wails bundle-ollama
 
 # Default target
 help:
 	@echo "PIKA Development Commands"
 	@echo "========================="
 	@echo ""
-	@echo "  make dev          - Start full dev environment (DB + Ollama + hot-reload server)"
-	@echo "  make dev-db       - Start only database (PostgreSQL + pgvector)"
-	@echo "  make dev-ollama   - Start only Ollama (local embeddings)"
-	@echo "  make dev-services - Start all services (DB + Ollama)"
-	@echo "  make dev-server   - Start Go server with hot reload (requires air)"
-	@echo "  make build        - Build the Docker image"
-	@echo "  make run          - Run full stack in Docker"
-	@echo "  make stop         - Stop all containers"
-	@echo "  make logs         - Tail logs from all containers"
-	@echo "  make clean        - Remove containers and volumes"
-	@echo "  make test         - Run tests"
-	@echo "  make install      - Install development dependencies"
-	@echo "  make backfill     - Generate embeddings for existing memories"
+	@echo "Development:"
+	@echo "  make dev            - Start HTTP server in dev mode (open browser)"
+	@echo "  make dev-server     - Start HTTP server with hot reload (air)"
+	@echo "  make test           - Run tests"
+	@echo ""
+	@echo "Build:"
+	@echo "  make build          - Build macOS desktop app (Apple Silicon)"
+	@echo "  make build-intel    - Build macOS desktop app (Intel)"
+	@echo "  make bundle-ollama  - Download Ollama into app bundle"
+	@echo ""
+	@echo "Setup:"
+	@echo "  make install        - Install all development dependencies"
+	@echo "  make install-wails  - Install Wails CLI"
+	@echo ""
+	@echo "Cleanup:"
+	@echo "  make clean          - Remove build artifacts"
 	@echo ""
 
-# Install development dependencies
-install:
-	@echo "Installing air for hot reload..."
-	go install github.com/air-verse/air@latest
-	@echo "Done! Make sure ~/go/bin is in your PATH"
+# ============================================
+# Development Commands
+# ============================================
 
-# Start database only (for development)
-dev-db:
-	docker compose up -d db
-	@echo "Waiting for database to be ready..."
-	@sleep 3
-	@echo "Database ready at localhost:5432"
+# Start HTTP server in dev mode
+dev:
+	@echo "Starting PIKA in dev mode..."
+	@echo "Open http://localhost:8080 in your browser"
+	@echo "Press Ctrl+C to stop."
+	go run ./cmd/server
 
-# Start Ollama for local embeddings
-dev-ollama:
-	docker compose up -d ollama
-	@echo "Waiting for Ollama to be ready..."
-	@sleep 5
-	@echo "Pulling embedding model..."
-	@curl -s http://localhost:11434/api/pull -d '{"name": "nomic-embed-text"}' > /dev/null || true
-	@echo "Ollama ready at localhost:11434"
-
-# Start all services (db, ollama)
-dev-services:
-	docker compose up -d db ollama
-	@echo "Waiting for database..."
-	@sleep 3
-	@echo "Pulling Ollama embedding model..."
-	@curl -s http://localhost:11434/api/pull -d '{"name": "nomic-embed-text"}' > /dev/null || true
-	@echo "Services ready: DB :5432, Ollama :11434"
-
-# Start Go server with hot reload
+# Start HTTP server with hot reload using air
 dev-server:
 	@if ! command -v air &> /dev/null; then \
 		echo "air not found. Run 'make install' first"; \
@@ -59,47 +42,59 @@ dev-server:
 	fi
 	air
 
-# Full development environment
-dev: dev-services dev-server
+# ============================================
+# Build Commands
+# ============================================
 
-# Build Docker image
+# Install Wails CLI
+install-wails:
+	@echo "Installing Wails CLI..."
+	go install github.com/wailsapp/wails/v2/cmd/wails@latest
+	@echo "Done! Run 'wails doctor' to verify installation"
+
+# Build macOS desktop app (Apple Silicon)
 build:
-	docker compose build
+	@echo "Building PIKA desktop app..."
+	~/go/bin/wails build -platform darwin/arm64 -skipbindings
+	@echo ""
+	@echo "Build complete: build/bin/PIKA.app"
+	@echo "Run 'make bundle-ollama' to include Ollama in the app bundle"
 
-# Run full stack in Docker (production-like)
-run:
-	docker compose up -d
-	@echo "PIKA running at http://localhost:8080"
+# Build for Intel Mac
+build-intel:
+	@echo "Building PIKA desktop app (Intel)..."
+	~/go/bin/wails build -platform darwin/amd64 -skipbindings
+	@echo "Build complete: build/bin/PIKA.app"
 
-# Stop all containers
-stop:
-	docker compose down
+# Download and bundle Ollama into the app
+bundle-ollama:
+	@echo "Downloading Ollama binary..."
+	@mkdir -p build/bin/PIKA.app/Contents/Resources/ollama
+	curl -L -o build/bin/PIKA.app/Contents/Resources/ollama/ollama \
+		"https://github.com/ollama/ollama/releases/download/v0.5.4/ollama-darwin"
+	chmod +x build/bin/PIKA.app/Contents/Resources/ollama/ollama
+	@echo "Ollama bundled successfully!"
+	@echo "App size:"
+	@du -sh build/bin/PIKA.app
 
-# View logs
-logs:
-	docker compose logs -f
+# ============================================
+# Common Commands
+# ============================================
 
-# Clean up everything
-clean:
-	docker compose down -v
-	rm -rf tmp/
+# Install all development dependencies
+install: install-wails
+	@echo "Installing air for hot reload..."
+	go install github.com/air-verse/air@latest
+	@echo ""
+	@echo "All dependencies installed!"
+	@echo "Run 'make dev' to start the server in dev mode"
 
 # Run tests
 test:
 	go test -v ./...
 
-# Database shell
-db-shell:
-	docker compose exec db psql -U pika -d pika
-
-# Reset database
-db-reset:
-	docker compose down -v db
-	docker compose up -d db
-	@sleep 3
-	@echo "Database reset complete"
-
-# Backfill embeddings for existing memories
-backfill:
-	@echo "Backfilling embeddings for existing memories..."
-	go run ./cmd/backfill/main.go
+# Clean up everything
+clean:
+	rm -rf tmp/
+	rm -rf build/bin/
+	@echo "Clean complete"

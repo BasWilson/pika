@@ -28,14 +28,14 @@ type Event struct {
 
 // Service handles Google Calendar operations
 type Service struct {
-	config        *oauth2.Config
-	db            *sql.DB
-	token         *oauth2.Token
-	initialized   bool
-	syncTicker    *time.Ticker
-	stopSync      chan struct{}
-	onReminder    func(event *Event, minutesBefore int)
-	lastSyncTime  time.Time
+	config         *oauth2.Config
+	db             *sql.DB
+	token          *oauth2.Token
+	initialized    bool
+	syncTicker     *time.Ticker
+	stopSync       chan struct{}
+	onReminder     func(event *Event, minutesBefore int)
+	lastSyncTime   time.Time
 	remindedEvents map[string]bool // Track which events we've reminded about
 }
 
@@ -168,14 +168,14 @@ func (s *Service) upsertEventFromGoogle(ctx context.Context, item *gcalendar.Eve
 
 	query := `
 		INSERT INTO calendar_events (id, google_event_id, title, description, start_time, end_time, location, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
 		ON CONFLICT (google_event_id) DO UPDATE SET
-			title = EXCLUDED.title,
-			description = EXCLUDED.description,
-			start_time = EXCLUDED.start_time,
-			end_time = EXCLUDED.end_time,
-			location = EXCLUDED.location,
-			updated_at = NOW()
+			title = excluded.title,
+			description = excluded.description,
+			start_time = excluded.start_time,
+			end_time = excluded.end_time,
+			location = excluded.location,
+			updated_at = datetime('now')
 	`
 
 	_, err := s.db.ExecContext(ctx, query,
@@ -206,7 +206,7 @@ func (s *Service) checkReminders() {
 	query := `
 		SELECT id, google_event_id, title, description, start_time, end_time, location
 		FROM calendar_events
-		WHERE start_time > $1 AND start_time <= $2
+		WHERE start_time > ? AND start_time <= ?
 		ORDER BY start_time ASC
 	`
 
@@ -390,7 +390,7 @@ func (s *Service) createGoogleEvent(ctx context.Context, event *Event) (string, 
 func (s *Service) saveLocalEvent(ctx context.Context, event *Event) error {
 	query := `
 		INSERT INTO calendar_events (id, title, description, start_time, end_time, location, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := s.db.ExecContext(ctx, query,
 		event.ID, event.Title, event.Description,
@@ -403,7 +403,7 @@ func (s *Service) listLocalEvents(ctx context.Context) ([]*Event, error) {
 	query := `
 		SELECT id, google_event_id, title, description, start_time, end_time, location, created_at
 		FROM calendar_events
-		WHERE start_time >= NOW()
+		WHERE start_time >= datetime('now')
 		ORDER BY start_time ASC
 		LIMIT 20
 	`
@@ -444,7 +444,7 @@ func (s *Service) listLocalEvents(ctx context.Context) ([]*Event, error) {
 // updateEventGoogleID updates the Google event ID for a local event
 func (s *Service) updateEventGoogleID(ctx context.Context, id, googleID string) error {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE calendar_events SET google_event_id = $1, updated_at = NOW() WHERE id = $2",
+		"UPDATE calendar_events SET google_event_id = ?, updated_at = datetime('now') WHERE id = ?",
 		googleID, id)
 	return err
 }
@@ -485,8 +485,8 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID string, title, descri
 	// Update locally
 	query := `
 		UPDATE calendar_events
-		SET title = $1, description = $2, start_time = $3, end_time = $4, location = $5, updated_at = NOW()
-		WHERE id = $6
+		SET title = ?, description = ?, start_time = ?, end_time = ?, location = ?, updated_at = datetime('now')
+		WHERE id = ?
 	`
 	_, err = s.db.ExecContext(ctx, query,
 		event.Title, event.Description, event.StartTime, event.EndTime, event.Location, eventID)
@@ -515,7 +515,7 @@ func (s *Service) DeleteEvent(ctx context.Context, eventID string) error {
 	}
 
 	// Delete locally
-	_, err = s.db.ExecContext(ctx, "DELETE FROM calendar_events WHERE id = $1", eventID)
+	_, err = s.db.ExecContext(ctx, "DELETE FROM calendar_events WHERE id = ?", eventID)
 	if err != nil {
 		return fmt.Errorf("failed to delete local event: %w", err)
 	}
@@ -535,7 +535,7 @@ func (s *Service) GetEventByID(ctx context.Context, eventID string) (*Event, err
 	query := `
 		SELECT id, google_event_id, title, description, start_time, end_time, location, created_at
 		FROM calendar_events
-		WHERE id = $1
+		WHERE id = ?
 	`
 
 	e := &Event{}
@@ -565,7 +565,7 @@ func (s *Service) FindEventByTitle(ctx context.Context, titleSearch string) ([]*
 	query := `
 		SELECT id, google_event_id, title, description, start_time, end_time, location, created_at
 		FROM calendar_events
-		WHERE LOWER(title) LIKE LOWER($1)
+		WHERE title LIKE ?
 		ORDER BY start_time ASC
 		LIMIT 10
 	`
@@ -668,10 +668,10 @@ func (s *Service) saveToken(ctx context.Context, token *oauth2.Token) error {
 	_, _ = s.db.ExecContext(ctx, "DELETE FROM oauth_tokens WHERE provider = 'google'")
 
 	query := `
-		INSERT INTO oauth_tokens (provider, access_token, refresh_token, token_type, expiry)
-		VALUES ('google', $1, $2, $3, $4)
+		INSERT INTO oauth_tokens (id, provider, access_token, refresh_token, token_type, expiry)
+		VALUES (?, 'google', ?, ?, ?, ?)
 	`
 	_, err := s.db.ExecContext(ctx, query,
-		token.AccessToken, token.RefreshToken, token.TokenType, token.Expiry)
+		uuid.New().String(), token.AccessToken, token.RefreshToken, token.TokenType, token.Expiry)
 	return err
 }

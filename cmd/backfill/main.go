@@ -2,15 +2,14 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"log"
 	"time"
 
 	"github.com/baswilson/pika/internal/ai"
 	"github.com/baswilson/pika/internal/config"
+	"github.com/baswilson/pika/internal/database"
 	"github.com/baswilson/pika/internal/memory"
 	"github.com/joho/godotenv"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
@@ -21,19 +20,22 @@ func main() {
 	_ = godotenv.Load()
 	cfg := config.Load()
 
-	// Connect to database
-	db, err := sql.Open("pgx", cfg.DatabaseURL)
+	// Connect to SQLite database
+	driver, err := database.NewSQLiteDriver(cfg.DatabasePath)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer db.Close()
+	defer driver.Close()
 
-	if err := db.Ping(); err != nil {
-		log.Fatalf("Failed to ping database: %v", err)
+	// Initialize schema (no-op if already exists)
+	if err := driver.Initialize(context.Background()); err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
 	}
-	log.Println("Connected to database")
+
+	log.Printf("Connected to database: %s", cfg.DatabasePath)
 
 	// Create services
+	db := driver.DB()
 	memoryStore := memory.NewStore(db)
 	aiService := ai.NewService(cfg, memoryStore)
 

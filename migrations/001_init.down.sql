@@ -1,6 +1,0 @@
-DROP TABLE IF EXISTS triggers;
-DROP TABLE IF EXISTS conversations;
-DROP TABLE IF EXISTS calendar_events;
-DROP TABLE IF EXISTS oauth_tokens;
-DROP TABLE IF EXISTS memories;
-DROP EXTENSION IF EXISTS vector;

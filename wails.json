@@ -1,0 +1,16 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "PIKA",
+  "outputfilename": "PIKA",
+  "author": {
+    "name": "baswilson",
+    "email": ""
+  },
+  "info": {
+    "companyName": "baswilson",
+    "productName": "PIKA",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright 2024",
+    "comments": "Personal Intelligence Assistant"
+  }
+}
