@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleName</key>
+    <string>PIKA</string>
+    <key>CFBundleDisplayName</key>
+    <string>PIKA</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.baswilson.pika</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleExecutable</key>
+    <string>PIKA</string>
+    <key>CFBundleIconFile</key>
+    <string>iconfile</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.15</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright 2024</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>PIKA needs microphone access for voice commands.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>PIKA uses speech recognition for voice commands.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>PIKA needs to access system services for calendar integration.</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>PIKA OAuth Callback</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>pika</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

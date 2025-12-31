@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#0a0a0f"/>
+    </linearGradient>
+    <linearGradient id="boltGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fcd34d"/>
+      <stop offset="50%" style="stop-color:#fbbf24"/>
+      <stop offset="100%" style="stop-color:#f59e0b"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="20" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="innerShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feOffset dx="0" dy="4"/>
+      <feGaussianBlur stdDeviation="8" result="shadow"/>
+      <feComposite in="SourceGraphic" in2="shadow" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="512" cy="512" r="480" fill="url(#bgGrad)" stroke="#fbbf24" stroke-width="8" stroke-opacity="0.3"/>
+
+  <!-- Outer glow ring -->
+  <circle cx="512" cy="512" r="420" fill="none" stroke="#fbbf24" stroke-width="2" stroke-opacity="0.2"/>
+
+  <!-- Inner subtle ring -->
+  <circle cx="512" cy="512" r="380" fill="none" stroke="#fbbf24" stroke-width="1" stroke-opacity="0.1"/>
+
+  <!-- Lightning bolt with glow -->
+  <g filter="url(#glow)">
+    <path d="M580 160 L340 480 L480 480 L420 864 L700 420 L540 420 L640 160 Z"
+          fill="url(#boltGrad)"
+          stroke="#fef3c7"
+          stroke-width="4"
+          stroke-linejoin="round"/>
+  </g>
+
+  <!-- Highlight on bolt -->
+  <path d="M560 200 L380 460 L460 460 L440 680"
+        fill="none"
+        stroke="#fef3c7"
+        stroke-width="12"
+        stroke-linecap="round"
+        stroke-opacity="0.4"/>
+</svg>
