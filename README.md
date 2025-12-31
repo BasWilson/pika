@@ -4,6 +4,8 @@
 
 PIKA is a native macOS application that lets you interact with AI using your voice. Just say "Pika" to activate, ask questions, manage your calendar, save memories, and more.
 
+![PIKA Screenshot](screen.png)
+
 ## Features
 
 ### Core
