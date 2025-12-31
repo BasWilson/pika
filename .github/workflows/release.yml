@@ -15,6 +15,9 @@ jobs:
     name: Build macOS App
     runs-on: macos-14  # Apple Silicon (M1) runner for native arm64 builds
 
+    env:
+      SIGNING_ENABLED: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,7 +39,7 @@ jobs:
 
       # Code Signing - only runs if secrets are configured
       - name: Import Code Signing Certificate
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+        if: env.SIGNING_ENABLED == 'true'
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -67,7 +70,7 @@ jobs:
           rm certificate.p12
 
       - name: Sign Application
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+        if: env.SIGNING_ENABLED == 'true'
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
@@ -93,7 +96,7 @@ jobs:
           echo "Signing successful!"
 
       - name: Notarize Application
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+        if: env.SIGNING_ENABLED == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
@@ -136,7 +139,7 @@ jobs:
 
       # Re-sign after adding Ollama (modifying bundle invalidates signature)
       - name: Re-sign Full Version
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+        if: env.SIGNING_ENABLED == 'true'
         run: |
           IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
 
@@ -163,7 +166,7 @@ jobs:
           echo "Re-signing successful!"
 
       - name: Notarize Full Version
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+        if: env.SIGNING_ENABLED == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
