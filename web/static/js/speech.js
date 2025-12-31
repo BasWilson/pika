@@ -13,7 +13,7 @@ class PikaSpeech {
         this.voices = [];
         this.selectedVoice = null;
         this.voiceRate = 1.0;
-        this.voicePitch = 1.0;
+        this.voicePitch = 1.5;
         this.networkErrorCount = 0;
         this.maxNetworkRetries = 3;
 
@@ -141,11 +141,12 @@ class PikaSpeech {
                 this.selectedVoice = this.voices.find(v => v.name === savedVoiceName);
             }
 
-            // Default to a good English voice if none selected
+            // Default to Samantha voice, fall back to other English voices
             if (!this.selectedVoice) {
-                this.selectedVoice = this.voices.find(v =>
-                    v.lang.startsWith('en') && (v.name.includes('Samantha') || v.name.includes('Google') || v.name.includes('Daniel'))
-                ) || this.voices.find(v => v.lang.startsWith('en'));
+                this.selectedVoice = this.voices.find(v => v.name === 'Samantha') ||
+                    this.voices.find(v => v.name.includes('Samantha')) ||
+                    this.voices.find(v => v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Daniel'))) ||
+                    this.voices.find(v => v.lang.startsWith('en'));
             }
 
             this.emit('voices_loaded', this.voices);
@@ -412,7 +413,10 @@ class PikaSpeech {
             // Cancel any ongoing speech
             this.synthesis.cancel();
 
-            const utterance = new SpeechSynthesisUtterance(text);
+            // Replace "pika" variations with "peeka" for correct pronunciation
+            const spokenText = text.replace(/pika/gi, 'peeka');
+
+            const utterance = new SpeechSynthesisUtterance(spokenText);
             utterance.rate = options.rate || this.voiceRate;
             utterance.pitch = options.pitch || this.voicePitch;
             utterance.volume = options.volume || 1.0;
@@ -447,7 +451,7 @@ class PikaSpeech {
 
     // Test the current voice
     testVoice() {
-        this.speak("Hello, I am PIKA, your personal assistant.");
+        this.speak("Hello! I'm PIKA, your personal assistant. How can I help?");
     }
 
     stopSpeaking() {

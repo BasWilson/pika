@@ -1,4 +1,4 @@
-.PHONY: help dev dev-server build build-intel test clean install install-wails bundle-ollama
+.PHONY: help dev dev-web build build-intel test clean install install-wails bundle-ollama
 
 # Default target
 help:
@@ -6,8 +6,8 @@ help:
 	@echo "========================="
 	@echo ""
 	@echo "Development:"
-	@echo "  make dev            - Start HTTP server in dev mode (open browser)"
-	@echo "  make dev-server     - Start HTTP server with hot reload (air)"
+	@echo "  make dev            - Start Wails app in dev mode (hot reload)"
+	@echo "  make dev-web        - Start HTTP server only (for browser testing)"
 	@echo "  make test           - Run tests"
 	@echo ""
 	@echo "Build:"
@@ -27,20 +27,19 @@ help:
 # Development Commands
 # ============================================
 
-# Start HTTP server in dev mode
+# Start Wails app in dev mode with hot reload
 dev:
-	@echo "Starting PIKA in dev mode..."
+	@echo "Starting PIKA Wails app in dev mode..."
+	@echo "The app window will open automatically."
+	@echo "Press Ctrl+C to stop."
+	~/go/bin/wails dev
+
+# Start HTTP server only (for browser testing)
+dev-web:
+	@echo "Starting PIKA HTTP server..."
 	@echo "Open http://localhost:8080 in your browser"
 	@echo "Press Ctrl+C to stop."
 	go run ./cmd/server
-
-# Start HTTP server with hot reload using air
-dev-server:
-	@if ! command -v air &> /dev/null; then \
-		echo "air not found. Run 'make install' first"; \
-		exit 1; \
-	fi
-	air
 
 # ============================================
 # Build Commands
@@ -83,11 +82,9 @@ bundle-ollama:
 
 # Install all development dependencies
 install: install-wails
-	@echo "Installing air for hot reload..."
-	go install github.com/air-verse/air@latest
 	@echo ""
 	@echo "All dependencies installed!"
-	@echo "Run 'make dev' to start the server in dev mode"
+	@echo "Run 'make dev' to start the Wails app in dev mode"
 
 # Run tests
 test:

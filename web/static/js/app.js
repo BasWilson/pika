@@ -5,6 +5,9 @@ class PikaApp {
         this.ws = window.pikaWs;
         this.speech = window.pikaSpeech;
         this.isProcessing = false;
+        this.hideCharacterTimeout = null;
+        this.sleepTimeout = null;
+        this.sleepDelay = 30000; // 30 seconds
 
         this.init();
     }
@@ -22,6 +25,55 @@ class PikaApp {
         this.setupWebSocket();
         this.setupSpeech();
         this.checkSpeechSupport();
+        this.showGreeting();
+        this.resetSleepTimer();
+    }
+
+    showGreeting() {
+        // Show a friendly greeting when the app opens
+        const greetings = [
+            { text: "Hey there! What can I help you with today?", emotion: "happy" },
+            { text: "Pika pika! Ready to assist!", emotion: "excited" },
+            { text: "Hello! I'm here whenever you need me.", emotion: "helpful" },
+            { text: "Good to see you! Ask me anything.", emotion: "happy" },
+        ];
+        const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+
+        // Set emotion briefly then go to idle
+        this.setPikaEmotion(greeting.emotion);
+
+        // Add greeting message and speak it after a short delay
+        setTimeout(() => {
+            this.addPikaMessage(greeting.text, greeting.emotion);
+            this.speech.speak(greeting.text).then(() => {
+                this.setPikaEmotion('idle');
+            }).catch(() => {
+                this.setPikaEmotion('idle');
+            });
+        }, 500);
+    }
+
+    resetSleepTimer() {
+        // Clear existing sleep timeout
+        if (this.sleepTimeout) {
+            clearTimeout(this.sleepTimeout);
+        }
+
+        // Wake up if sleeping
+        if (this.pikaAvatar && this.pikaAvatar.dataset.emotion === 'sleeping') {
+            this.setPikaEmotion('idle');
+        }
+
+        // Start new sleep timer
+        this.sleepTimeout = setTimeout(() => {
+            this.fallAsleep();
+        }, this.sleepDelay);
+    }
+
+    fallAsleep() {
+        if (this.pikaAvatar && !this.isProcessing) {
+            this.setPikaEmotion('sleeping');
+        }
     }
 
     bindElements() {
@@ -38,6 +90,8 @@ class PikaApp {
         this.alwaysListenStatus = document.getElementById('always-listen-status');
         this.textInput = document.getElementById('text-input');
         this.calendarNotice = document.getElementById('calendar-notice');
+        this.pikaCharacter = document.getElementById('pika-character');
+        this.pikaAvatar = this.pikaCharacter?.querySelector('.pika-avatar');
     }
 
     setupWebSocket() {
@@ -69,18 +123,29 @@ class PikaApp {
         this.ws.on('response', (msg) => {
             const payload = msg.payload;
 
+            // Reset sleep timer on interaction
+            this.resetSleepTimer();
+
             // Show the message
             if (payload.text) {
                 this.addPikaMessage(payload.text, payload.emotion);
             }
 
+            // Show character and set emotion
+            this.showPikaCharacter(payload.emotion || 'helpful');
+
             // Speak the response
             if (payload.text) {
                 this.setOrbState('speaking');
+                this.setPikaCharacterSpeaking(true);
                 this.speech.speak(payload.text).then(() => {
                     this.setOrbState('idle');
+                    this.setPikaCharacterSpeaking(false);
+                    this.hidePikaCharacterDelayed();
                 }).catch(() => {
                     this.setOrbState('idle');
+                    this.setPikaCharacterSpeaking(false);
+                    this.hidePikaCharacterDelayed();
                 });
             }
 
@@ -197,10 +262,12 @@ class PikaApp {
     handleVoiceCommand(data) {
         this.hideTranscript();
         this.addUserMessage(data.text);
+        this.resetSleepTimer();
 
         this.isProcessing = true;
         this.setStatus('Processing');
         this.setOrbState('processing');
+        this.setPikaEmotion('thinking');
 
         if (!this.speech.alwaysListen) {
             this.speech.stop();
@@ -270,6 +337,62 @@ class PikaApp {
                     this.orbButton.classList.remove('orb-glow-active');
                 }
             }, 500);
+        }
+    }
+
+    // PIKA Character Control
+    showPikaCharacter(emotion = 'helpful') {
+        if (this.pikaCharacter) {
+            this.pikaCharacter.classList.add('active');
+            if (this.pikaAvatar) {
+                this.pikaAvatar.dataset.emotion = emotion;
+            }
+        }
+        // Clear any pending hide timeout
+        if (this.hideCharacterTimeout) {
+            clearTimeout(this.hideCharacterTimeout);
+            this.hideCharacterTimeout = null;
+        }
+    }
+
+    hidePikaCharacter() {
+        if (this.pikaCharacter) {
+            this.pikaCharacter.classList.remove('speaking');
+            if (this.pikaAvatar) {
+                this.pikaAvatar.classList.remove('speaking');
+                this.pikaAvatar.dataset.emotion = 'idle';
+            }
+        }
+    }
+
+    hidePikaCharacterDelayed(delay = 3000) {
+        if (this.hideCharacterTimeout) {
+            clearTimeout(this.hideCharacterTimeout);
+        }
+        this.hideCharacterTimeout = setTimeout(() => {
+            this.hidePikaCharacter();
+        }, delay);
+    }
+
+    setPikaCharacterSpeaking(speaking) {
+        if (this.pikaCharacter) {
+            if (speaking) {
+                this.pikaCharacter.classList.add('speaking');
+                if (this.pikaAvatar) {
+                    this.pikaAvatar.classList.add('speaking');
+                }
+            } else {
+                this.pikaCharacter.classList.remove('speaking');
+                if (this.pikaAvatar) {
+                    this.pikaAvatar.classList.remove('speaking');
+                }
+            }
+        }
+    }
+
+    setPikaEmotion(emotion) {
+        if (this.pikaAvatar) {
+            this.pikaAvatar.dataset.emotion = emotion;
         }
     }
 
@@ -621,8 +744,10 @@ function sendTextCommand(event) {
     if (!text) return;
 
     window.pikaApp.addUserMessage(text);
+    window.pikaApp.resetSleepTimer();
     window.pikaApp.setStatus('Processing');
     window.pikaApp.setOrbState('processing');
+    window.pikaApp.setPikaEmotion('thinking');
 
     window.pikaWs.sendCommand(text, false, 1.0)
         .catch(error => {
@@ -719,6 +844,79 @@ function testVoice() {
     window.pikaSpeech.testVoice();
 }
 
+// Custom modal functions (Wails doesn't support native confirm/alert)
+function showModal(title, message, buttons) {
+    const overlay = document.getElementById('modal-overlay');
+    const titleEl = document.getElementById('modal-title');
+    const messageEl = document.getElementById('modal-message');
+    const buttonsEl = document.getElementById('modal-buttons');
+
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    buttonsEl.innerHTML = '';
+
+    buttons.forEach(btn => {
+        const button = document.createElement('button');
+        button.textContent = btn.text;
+        button.className = btn.primary
+            ? 'flex-1 bg-pika-400/20 border border-pika-400/30 text-pika-400 rounded px-4 py-2 text-sm font-mono uppercase tracking-wider hover:bg-pika-400/30 transition-colors'
+            : 'flex-1 bg-gray-800 border border-gray-700 text-gray-300 rounded px-4 py-2 text-sm font-mono uppercase tracking-wider hover:bg-gray-700 transition-colors';
+        if (btn.danger) {
+            button.className = 'flex-1 bg-red-500/20 border border-red-500/30 text-red-400 rounded px-4 py-2 text-sm font-mono uppercase tracking-wider hover:bg-red-500/30 transition-colors';
+        }
+        button.onclick = () => {
+            hideModal();
+            if (btn.onClick) btn.onClick();
+        };
+        buttonsEl.appendChild(button);
+    });
+
+    overlay.classList.remove('hidden');
+}
+
+function hideModal() {
+    document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+function showAlert(title, message) {
+    showModal(title, message, [
+        { text: 'OK', primary: true }
+    ]);
+}
+
+function showConfirm(title, message, onConfirm) {
+    showModal(title, message, [
+        { text: 'Cancel' },
+        { text: 'Confirm', danger: true, onClick: onConfirm }
+    ]);
+}
+
+function resetApp() {
+    showConfirm(
+        'Reset App',
+        'This will clear all settings and quit the app.\n\nReopen PIKA to run the setup wizard.\n\nAre you sure?',
+        async () => {
+            try {
+                const response = await fetch('http://localhost:8080/api/reset', { method: 'POST' });
+                if (response.ok) {
+                    localStorage.clear();
+                    // Quit the app - user will reopen and see setup wizard
+                    if (window.runtime && window.runtime.Quit) {
+                        window.runtime.Quit();
+                    } else {
+                        showAlert('Reset Complete', 'Settings cleared. Please quit and reopen PIKA to run the setup wizard.');
+                    }
+                } else {
+                    showAlert('Error', 'Failed to reset app. Please try again.');
+                }
+            } catch (error) {
+                console.error('Reset failed:', error);
+                showAlert('Error', 'Failed to reset app: ' + error.message);
+            }
+        }
+    );
+}
+
 // Wake word training functions
 function toggleTraining() {
     const panel = document.getElementById('training-panel');
@@ -782,10 +980,10 @@ function resetTrainingUI() {
 }
 
 function resetWakeWords() {
-    if (confirm('Reset all trained wake words to default?')) {
+    showConfirm('Reset Wake Words', 'Reset all trained wake words to default?', () => {
         window.pikaSpeech.resetWakeWords();
         resetTrainingUI();
-    }
+    });
 }
 
 // Load saved settings

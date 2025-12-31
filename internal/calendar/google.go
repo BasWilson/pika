@@ -115,8 +115,10 @@ func (s *Service) StopBackgroundSync() {
 // syncFromGoogle fetches events from Google Calendar and caches them locally
 func (s *Service) syncFromGoogle() {
 	if !s.IsInitialized() {
+		fmt.Println("Calendar sync skipped: not initialized")
 		return
 	}
+	fmt.Println("Starting calendar sync from Google...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -166,6 +168,10 @@ func (s *Service) upsertEventFromGoogle(ctx context.Context, item *gcalendar.Eve
 		endTime, _ = time.Parse("2006-01-02", item.End.Date)
 	}
 
+	// Convert to UTC for consistent storage and comparison
+	startTimeUTC := startTime.UTC().Format("2006-01-02 15:04:05")
+	endTimeUTC := endTime.UTC().Format("2006-01-02 15:04:05")
+
 	query := `
 		INSERT INTO calendar_events (id, google_event_id, title, description, start_time, end_time, location, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
@@ -183,8 +189,8 @@ func (s *Service) upsertEventFromGoogle(ctx context.Context, item *gcalendar.Eve
 		item.Id,
 		item.Summary,
 		item.Description,
-		startTime,
-		endTime,
+		startTimeUTC,
+		endTimeUTC,
 		item.Location,
 	)
 
@@ -200,7 +206,7 @@ func (s *Service) checkReminders() {
 	}
 
 	ctx := context.Background()
-	now := time.Now()
+	now := time.Now().UTC()
 
 	// Find events starting in the next 15 minutes
 	query := `
@@ -213,11 +219,11 @@ func (s *Service) checkReminders() {
 	// Check for 15-minute and 5-minute reminders
 	reminderWindows := []struct {
 		minutes int
-		from    time.Time
-		to      time.Time
+		from    string
+		to      string
 	}{
-		{15, now.Add(14 * time.Minute), now.Add(16 * time.Minute)},
-		{5, now.Add(4 * time.Minute), now.Add(6 * time.Minute)},
+		{15, now.Add(14 * time.Minute).Format("2006-01-02 15:04:05"), now.Add(16 * time.Minute).Format("2006-01-02 15:04:05")},
+		{5, now.Add(4 * time.Minute).Format("2006-01-02 15:04:05"), now.Add(6 * time.Minute).Format("2006-01-02 15:04:05")},
 	}
 
 	for _, window := range reminderWindows {
@@ -229,10 +235,14 @@ func (s *Service) checkReminders() {
 		for rows.Next() {
 			e := &Event{}
 			var googleID, description, location sql.NullString
+			var startTimeStr, endTimeStr string
 
-			if err := rows.Scan(&e.ID, &googleID, &e.Title, &description, &e.StartTime, &e.EndTime, &location); err != nil {
+			if err := rows.Scan(&e.ID, &googleID, &e.Title, &description, &startTimeStr, &endTimeStr, &location); err != nil {
 				continue
 			}
+
+			e.StartTime = parseTimeString(startTimeStr)
+			e.EndTime = parseTimeString(endTimeStr)
 
 			if googleID.Valid {
 				e.GoogleID = googleID.String
@@ -277,7 +287,14 @@ func (s *Service) ExchangeCode(ctx context.Context, code string) error {
 	s.initialized = true
 
 	// Save token to database
-	return s.saveToken(ctx, token)
+	if err := s.saveToken(ctx, token); err != nil {
+		return err
+	}
+
+	// Trigger immediate sync now that we have valid credentials
+	go s.syncFromGoogle()
+
+	return nil
 }
 
 // IsInitialized returns whether the calendar service has valid credentials
@@ -388,13 +405,17 @@ func (s *Service) createGoogleEvent(ctx context.Context, event *Event) (string, 
 
 // saveLocalEvent saves an event to the local database
 func (s *Service) saveLocalEvent(ctx context.Context, event *Event) error {
+	// Convert to UTC for consistent storage
+	startTimeUTC := event.StartTime.UTC().Format("2006-01-02 15:04:05")
+	endTimeUTC := event.EndTime.UTC().Format("2006-01-02 15:04:05")
+
 	query := `
 		INSERT INTO calendar_events (id, title, description, start_time, end_time, location, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
 	`
 	_, err := s.db.ExecContext(ctx, query,
 		event.ID, event.Title, event.Description,
-		event.StartTime, event.EndTime, event.Location, event.CreatedAt)
+		startTimeUTC, endTimeUTC, event.Location)
 	return err
 }
 
@@ -408,8 +429,10 @@ func (s *Service) listLocalEvents(ctx context.Context) ([]*Event, error) {
 		LIMIT 20
 	`
 
+	fmt.Printf("Querying local events...\n")
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
+		fmt.Printf("Error querying events: %v\n", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -420,10 +443,16 @@ func (s *Service) listLocalEvents(ctx context.Context) ([]*Event, error) {
 		var googleID sql.NullString
 		var description sql.NullString
 		var location sql.NullString
+		var startTimeStr, endTimeStr, createdAtStr string
 
-		if err := rows.Scan(&e.ID, &googleID, &e.Title, &description, &e.StartTime, &e.EndTime, &location, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &googleID, &e.Title, &description, &startTimeStr, &endTimeStr, &location, &createdAtStr); err != nil {
 			return nil, err
 		}
+
+		// Parse times - supports both old and new formats
+		e.StartTime = parseTimeString(startTimeStr)
+		e.EndTime = parseTimeString(endTimeStr)
+		e.CreatedAt = parseTimeString(createdAtStr)
 
 		if googleID.Valid {
 			e.GoogleID = googleID.String
@@ -438,6 +467,7 @@ func (s *Service) listLocalEvents(ctx context.Context) ([]*Event, error) {
 		events = append(events, e)
 	}
 
+	fmt.Printf("listLocalEvents returning %d events\n", len(events))
 	return events, nil
 }
 
@@ -482,14 +512,17 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID string, title, descri
 		event.Location = *location
 	}
 
-	// Update locally
+	// Update locally - store times in UTC
+	startTimeUTC := event.StartTime.UTC().Format("2006-01-02 15:04:05")
+	endTimeUTC := event.EndTime.UTC().Format("2006-01-02 15:04:05")
+
 	query := `
 		UPDATE calendar_events
 		SET title = ?, description = ?, start_time = ?, end_time = ?, location = ?, updated_at = datetime('now')
 		WHERE id = ?
 	`
 	_, err = s.db.ExecContext(ctx, query,
-		event.Title, event.Description, event.StartTime, event.EndTime, event.Location, eventID)
+		event.Title, event.Description, startTimeUTC, endTimeUTC, event.Location, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update local event: %w", err)
 	}
@@ -540,12 +573,18 @@ func (s *Service) GetEventByID(ctx context.Context, eventID string) (*Event, err
 
 	e := &Event{}
 	var googleID, description, location sql.NullString
+	var startTimeStr, endTimeStr, createdAtStr string
 
 	err := s.db.QueryRowContext(ctx, query, eventID).Scan(
-		&e.ID, &googleID, &e.Title, &description, &e.StartTime, &e.EndTime, &location, &e.CreatedAt)
+		&e.ID, &googleID, &e.Title, &description, &startTimeStr, &endTimeStr, &location, &createdAtStr)
 	if err != nil {
 		return nil, err
 	}
+
+	// Parse times - try both formats for backwards compatibility
+	e.StartTime = parseTimeString(startTimeStr)
+	e.EndTime = parseTimeString(endTimeStr)
+	e.CreatedAt = parseTimeString(createdAtStr)
 
 	if googleID.Valid {
 		e.GoogleID = googleID.String
@@ -558,6 +597,25 @@ func (s *Service) GetEventByID(ctx context.Context, eventID string) (*Event, err
 	}
 
 	return e, nil
+}
+
+// parseTimeString parses a time string in various formats
+func parseTimeString(s string) time.Time {
+	// Try UTC format first (new format)
+	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
+		return t.UTC()
+	}
+	// Try RFC3339 with timezone (old format from Go's time.Time)
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UTC()
+	}
+	// Try other common formats
+	for _, format := range []string{"2006-01-02T15:04:05Z07:00", "2006-01-02 15:04:05-07:00"} {
+		if t, err := time.Parse(format, s); err == nil {
+			return t.UTC()
+		}
+	}
+	return time.Time{}
 }
 
 // FindEventByTitle searches for events by title (partial match)
@@ -580,10 +638,15 @@ func (s *Service) FindEventByTitle(ctx context.Context, titleSearch string) ([]*
 	for rows.Next() {
 		e := &Event{}
 		var googleID, description, location sql.NullString
+		var startTimeStr, endTimeStr, createdAtStr string
 
-		if err := rows.Scan(&e.ID, &googleID, &e.Title, &description, &e.StartTime, &e.EndTime, &location, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &googleID, &e.Title, &description, &startTimeStr, &endTimeStr, &location, &createdAtStr); err != nil {
 			return nil, err
 		}
+
+		e.StartTime = parseTimeString(startTimeStr)
+		e.EndTime = parseTimeString(endTimeStr)
+		e.CreatedAt = parseTimeString(createdAtStr)
 
 		if googleID.Valid {
 			e.GoogleID = googleID.String
@@ -645,12 +708,23 @@ func (s *Service) loadToken() {
 		LIMIT 1
 	`
 
-	var accessToken, refreshToken, tokenType string
-	var expiry time.Time
+	var accessToken, refreshToken, tokenType, expiryStr string
 
-	err := s.db.QueryRowContext(ctx, query).Scan(&accessToken, &refreshToken, &tokenType, &expiry)
+	err := s.db.QueryRowContext(ctx, query).Scan(&accessToken, &refreshToken, &tokenType, &expiryStr)
 	if err != nil {
+		if err != sql.ErrNoRows {
+			fmt.Printf("Failed to load OAuth token: %v\n", err)
+		}
 		return
+	}
+
+	// Parse expiry time - try multiple formats
+	var expiry time.Time
+	for _, format := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999-07:00", "2006-01-02T15:04:05Z"} {
+		if parsed, err := time.Parse(format, expiryStr); err == nil {
+			expiry = parsed
+			break
+		}
 	}
 
 	s.token = &oauth2.Token{
@@ -660,6 +734,7 @@ func (s *Service) loadToken() {
 		Expiry:       expiry,
 	}
 	s.initialized = true
+	fmt.Println("Google Calendar token loaded from database")
 }
 
 // saveToken saves the OAuth token to the database

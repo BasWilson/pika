@@ -3,8 +3,8 @@ package server
 import (
 	"context"
 	"database/sql"
-	"embed"
 	"fmt"
+	"io/fs"
 	"log"
 
 	"github.com/baswilson/pika/internal/actions"
@@ -28,11 +28,11 @@ type Server struct {
 	memory   *memory.Store
 	calendar *calendar.Service
 	actions  *actions.Registry
-	webFS    embed.FS
+	webFS    fs.FS
 }
 
 // New creates a new Server instance
-func New(cfg *config.Config, webFS embed.FS) (*Server, error) {
+func New(cfg *config.Config, webFS fs.FS) (*Server, error) {
 	// Connect to SQLite database
 	driver, err := database.NewSQLiteDriver(cfg.DatabasePath)
 	if err != nil {

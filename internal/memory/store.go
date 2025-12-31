@@ -12,6 +12,27 @@ import (
 	"github.com/google/uuid"
 )
 
+// parseTimeString parses a time string from SQLite in various formats
+func parseTimeString(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	// Try common SQLite/Go time formats
+	formats := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05Z",
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999-07:00",
+	}
+	for _, format := range formats {
+		if t, err := time.Parse(format, s); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
 // Memory represents a stored memory
 type Memory struct {
 	ID           string    `json:"id"`
@@ -103,9 +124,12 @@ func (s *Store) List(ctx context.Context, limit int) ([]*Memory, error) {
 	for rows.Next() {
 		m := &Memory{}
 		var tagsJSON string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &tagsJSON, &m.CreatedAt, &m.LastAccessed, &m.AccessCount); err != nil {
+		var createdAtStr, lastAccessedStr string
+		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &tagsJSON, &createdAtStr, &lastAccessedStr, &m.AccessCount); err != nil {
 			return nil, err
 		}
+		m.CreatedAt = parseTimeString(createdAtStr)
+		m.LastAccessed = parseTimeString(lastAccessedStr)
 		if err := json.Unmarshal([]byte(tagsJSON), &m.Tags); err != nil {
 			m.Tags = []string{} // Default to empty if parse fails
 		}
@@ -125,12 +149,15 @@ func (s *Store) Get(ctx context.Context, id string) (*Memory, error) {
 
 	m := &Memory{}
 	var tagsJSON string
+	var createdAtStr, lastAccessedStr string
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&m.ID, &m.Content, &m.Importance, &tagsJSON, &m.CreatedAt, &m.LastAccessed, &m.AccessCount,
+		&m.ID, &m.Content, &m.Importance, &tagsJSON, &createdAtStr, &lastAccessedStr, &m.AccessCount,
 	)
 	if err != nil {
 		return nil, err
 	}
+	m.CreatedAt = parseTimeString(createdAtStr)
+	m.LastAccessed = parseTimeString(lastAccessedStr)
 	if err := json.Unmarshal([]byte(tagsJSON), &m.Tags); err != nil {
 		m.Tags = []string{}
 	}
@@ -215,9 +242,12 @@ func (s *Store) SearchByVector(ctx context.Context, embedding []float32, limit i
 		m := &Memory{}
 		var tagsJSON string
 		var embeddingBlob []byte
-		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &tagsJSON, &m.CreatedAt, &m.LastAccessed, &m.AccessCount, &embeddingBlob); err != nil {
+		var createdAtStr, lastAccessedStr string
+		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &tagsJSON, &createdAtStr, &lastAccessedStr, &m.AccessCount, &embeddingBlob); err != nil {
 			return nil, err
 		}
+		m.CreatedAt = parseTimeString(createdAtStr)
+		m.LastAccessed = parseTimeString(lastAccessedStr)
 		if err := json.Unmarshal([]byte(tagsJSON), &m.Tags); err != nil {
 			m.Tags = []string{}
 		}
@@ -279,9 +309,12 @@ func (s *Store) GetTopImportant(ctx context.Context, limit int) ([]*Memory, erro
 	for rows.Next() {
 		m := &Memory{}
 		var tagsJSON string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &tagsJSON, &m.CreatedAt, &m.LastAccessed, &m.AccessCount); err != nil {
+		var createdAtStr, lastAccessedStr string
+		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &tagsJSON, &createdAtStr, &lastAccessedStr, &m.AccessCount); err != nil {
 			return nil, err
 		}
+		m.CreatedAt = parseTimeString(createdAtStr)
+		m.LastAccessed = parseTimeString(lastAccessedStr)
 		if err := json.Unmarshal([]byte(tagsJSON), &m.Tags); err != nil {
 			m.Tags = []string{}
 		}
@@ -320,9 +353,12 @@ func (s *Store) GetWithoutEmbedding(ctx context.Context, limit int) ([]*Memory, 
 	for rows.Next() {
 		m := &Memory{}
 		var tagsJSON string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &tagsJSON, &m.CreatedAt, &m.LastAccessed, &m.AccessCount); err != nil {
+		var createdAtStr, lastAccessedStr string
+		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &tagsJSON, &createdAtStr, &lastAccessedStr, &m.AccessCount); err != nil {
 			return nil, err
 		}
+		m.CreatedAt = parseTimeString(createdAtStr)
+		m.LastAccessed = parseTimeString(lastAccessedStr)
 		if err := json.Unmarshal([]byte(tagsJSON), &m.Tags); err != nil {
 			m.Tags = []string{}
 		}

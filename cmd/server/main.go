@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -21,8 +22,9 @@ func main() {
 	// Load config
 	cfg := config.Load()
 
-	// Create server
-	srv, err := server.New(cfg)
+	// Create server with filesystem-based assets (allows live reload in dev)
+	webFS := fs.FS(os.DirFS("."))
+	srv, err := server.New(cfg, webFS)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

@@ -63,6 +63,7 @@ func (s *Server) setupRoutes() {
 
 	// Utility routes
 	r.Post("/open-url", s.handleOpenURL)
+	r.Post("/api/reset", s.handleReset)
 }
 
 // handleIndex serves the main UI
@@ -409,4 +410,23 @@ func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 	// Open URL in system browser using macOS 'open' command
 	exec.Command("open", url).Start()
 	w.WriteHeader(http.StatusOK)
+}
+
+// handleReset clears the app configuration to trigger setup wizard on next launch
+func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
+	// Delete all config entries from app_config table
+	_, err := s.db.Exec("DELETE FROM app_config")
+	if err != nil {
+		log.Printf("Failed to reset config: %v", err)
+		http.Error(w, "Failed to reset configuration", http.StatusInternalServerError)
+		return
+	}
+
+	log.Println("App configuration reset - setup wizard will show on next launch")
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "reset",
+		"message": "Configuration cleared. Please restart the app.",
+	})
 }

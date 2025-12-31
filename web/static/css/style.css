@@ -1,6 +1,34 @@
 /* PIKA Custom Styles */
 /* Most styling is handled by Tailwind CSS via CDN */
 
+/* Make app feel native - disable text selection by default */
+body {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    cursor: default;
+}
+
+/* Allow text selection in messages */
+#messages p,
+#messages .selectable {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+    cursor: text;
+}
+
+/* Allow text selection in inputs */
+input, textarea {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+    cursor: text;
+}
+
 /* Messages container */
 #messages {
     scrollbar-width: thin;
@@ -29,7 +57,12 @@
 
 /* Messages panel styling */
 #messages-panel {
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.6) 50%, transparent 100%);
+    background: transparent;
+}
+
+/* Make messages scroll to bottom */
+#messages {
+    justify-content: flex-end;
 }
 
 /* Smooth transitions */
@@ -56,4 +89,347 @@ button:focus {
 
 .processing {
     animation: processing 1.5s ease-in-out infinite;
+}
+
+/* ===== PIKA Character Styles ===== */
+.pika-avatar {
+    position: relative;
+    transform: scale(1.5);
+}
+
+.pika-face {
+    position: relative;
+    animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+
+/* Ears */
+.pika-ear {
+    position: absolute;
+    width: 30px;
+    height: 50px;
+    background: linear-gradient(135deg, #fbbf24 60%, #1a1a2e 100%);
+    border-radius: 50% 50% 50% 50% / 80% 80% 20% 20%;
+    top: -35px;
+}
+
+.pika-ear-left {
+    left: 15px;
+    transform: rotate(-25deg);
+}
+
+.pika-ear-right {
+    right: 15px;
+    transform: rotate(25deg);
+}
+
+/* Head */
+.pika-head {
+    width: 120px;
+    height: 100px;
+    background: radial-gradient(ellipse at 50% 40%, #fcd34d 0%, #fbbf24 50%, #f59e0b 100%);
+    border-radius: 50% 50% 45% 45%;
+    position: relative;
+    box-shadow: 0 10px 30px rgba(251, 191, 36, 0.3);
+}
+
+/* Eyes */
+.pika-eyes {
+    position: absolute;
+    top: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 30px;
+}
+
+.pika-eye {
+    width: 22px;
+    height: 22px;
+    background: #1a1a2e;
+    border-radius: 50%;
+    position: relative;
+    overflow: hidden;
+    animation: blink 4s ease-in-out infinite;
+}
+
+/* Stagger the blink slightly between eyes for natural look */
+.pika-eye-right {
+    animation-delay: 0.05s;
+}
+
+@keyframes blink {
+    0%, 9%, 11%, 100% {
+        transform: scaleY(1);
+    }
+    10% {
+        transform: scaleY(0.1);
+    }
+}
+
+.pika-pupil {
+    width: 12px;
+    height: 12px;
+    background: #0a0a0f;
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    animation: look-around 4s ease-in-out infinite;
+}
+
+@keyframes look-around {
+    0%, 100% { transform: translate(-50%, -50%); }
+    25% { transform: translate(-30%, -50%); }
+    75% { transform: translate(-70%, -50%); }
+}
+
+.pika-shine {
+    width: 6px;
+    height: 6px;
+    background: white;
+    border-radius: 50%;
+    position: absolute;
+    top: 4px;
+    left: 4px;
+}
+
+/* Cheeks */
+.pika-cheek {
+    width: 18px;
+    height: 12px;
+    background: #ef4444;
+    border-radius: 50%;
+    position: absolute;
+    top: 50px;
+    opacity: 0.7;
+}
+
+.pika-cheek-left { left: 8px; }
+.pika-cheek-right { right: 8px; }
+
+/* Mouth */
+.pika-mouth {
+    position: absolute;
+    bottom: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 12px;
+    height: 6px;
+    border-bottom: 3px solid #1a1a2e;
+    border-radius: 0 0 50% 50%;
+}
+
+/* Speaking indicator - hidden, using mouth animation instead */
+.pika-speaking-indicator {
+    display: none;
+}
+
+/* Talking mouth animation */
+.pika-avatar.speaking .pika-mouth {
+    width: 16px;
+    height: 10px;
+    border: none;
+    background: #1a1a2e;
+    border-radius: 50%;
+    animation: talk 0.3s ease-in-out infinite;
+}
+
+@keyframes talk {
+    0%, 100% {
+        transform: translateX(-50%) scaleY(0.4);
+    }
+    50% {
+        transform: translateX(-50%) scaleY(1);
+    }
+}
+
+/* ===== Emotion States ===== */
+
+/* Happy / Excited */
+.pika-avatar[data-emotion="happy"] .pika-eye,
+.pika-avatar[data-emotion="excited"] .pika-eye {
+    height: 8px;
+    border-radius: 50% 50% 0 0;
+    background: #1a1a2e;
+}
+
+.pika-avatar[data-emotion="happy"] .pika-pupil,
+.pika-avatar[data-emotion="excited"] .pika-pupil,
+.pika-avatar[data-emotion="happy"] .pika-shine,
+.pika-avatar[data-emotion="excited"] .pika-shine {
+    display: none;
+}
+
+.pika-avatar[data-emotion="happy"] .pika-mouth,
+.pika-avatar[data-emotion="excited"] .pika-mouth {
+    width: 20px;
+    height: 12px;
+    border-bottom: none;
+    background: #1a1a2e;
+    border-radius: 0 0 50% 50%;
+}
+
+.pika-avatar[data-emotion="excited"] .pika-face {
+    animation: excited-bounce 0.3s ease-in-out infinite;
+}
+
+@keyframes excited-bounce {
+    0%, 100% { transform: translateY(0) rotate(-2deg); }
+    50% { transform: translateY(-5px) rotate(2deg); }
+}
+
+/* Curious / Thinking */
+.pika-avatar[data-emotion="curious"] .pika-eye-right,
+.pika-avatar[data-emotion="thinking"] .pika-eye-right {
+    transform: scale(1.2);
+}
+
+.pika-avatar[data-emotion="curious"] .pika-mouth,
+.pika-avatar[data-emotion="thinking"] .pika-mouth {
+    width: 8px;
+    height: 8px;
+    border: none;
+    background: #1a1a2e;
+    border-radius: 50%;
+}
+
+.pika-avatar[data-emotion="thinking"] .pika-face {
+    animation: thinking-tilt 2s ease-in-out infinite;
+}
+
+@keyframes thinking-tilt {
+    0%, 100% { transform: rotate(0deg); }
+    50% { transform: rotate(5deg); }
+}
+
+/* Helpful */
+.pika-avatar[data-emotion="helpful"] .pika-mouth {
+    width: 16px;
+    height: 8px;
+    border-bottom: none;
+    background: #1a1a2e;
+    border-radius: 0 0 50% 50%;
+}
+
+.pika-avatar[data-emotion="helpful"] .pika-cheek {
+    opacity: 0.9;
+    animation: cheek-glow 1s ease-in-out infinite;
+}
+
+@keyframes cheek-glow {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+
+/* Sad / Sorry */
+.pika-avatar[data-emotion="sad"] .pika-eye,
+.pika-avatar[data-emotion="sorry"] .pika-eye {
+    transform: scaleY(0.7);
+}
+
+.pika-avatar[data-emotion="sad"] .pika-mouth,
+.pika-avatar[data-emotion="sorry"] .pika-mouth {
+    border-bottom: none;
+    border-top: 3px solid #1a1a2e;
+    border-radius: 50% 50% 0 0;
+}
+
+.pika-avatar[data-emotion="sad"] .pika-ear,
+.pika-avatar[data-emotion="sorry"] .pika-ear {
+    transform-origin: bottom center;
+}
+
+.pika-avatar[data-emotion="sad"] .pika-ear-left,
+.pika-avatar[data-emotion="sorry"] .pika-ear-left {
+    transform: rotate(-40deg);
+}
+
+.pika-avatar[data-emotion="sad"] .pika-ear-right,
+.pika-avatar[data-emotion="sorry"] .pika-ear-right {
+    transform: rotate(40deg);
+}
+
+/* Focused / Serious */
+.pika-avatar[data-emotion="focused"] .pika-eye,
+.pika-avatar[data-emotion="serious"] .pika-eye {
+    height: 16px;
+}
+
+.pika-avatar[data-emotion="focused"] .pika-mouth,
+.pika-avatar[data-emotion="serious"] .pika-mouth {
+    width: 15px;
+    height: 2px;
+    border: none;
+    background: #1a1a2e;
+    border-radius: 2px;
+}
+
+/* Sleeping / Idle */
+.pika-avatar[data-emotion="idle"] .pika-eye,
+.pika-avatar[data-emotion="sleeping"] .pika-eye {
+    height: 3px;
+    border-radius: 3px;
+    animation: none; /* No blinking when eyes are closed */
+}
+
+.pika-avatar[data-emotion="idle"] .pika-pupil,
+.pika-avatar[data-emotion="idle"] .pika-shine,
+.pika-avatar[data-emotion="sleeping"] .pika-pupil,
+.pika-avatar[data-emotion="sleeping"] .pika-shine {
+    display: none;
+}
+
+/* Deep sleep animation */
+.pika-avatar[data-emotion="sleeping"] .pika-face {
+    animation: sleeping-bob 4s ease-in-out infinite;
+}
+
+.pika-avatar[data-emotion="sleeping"]::before {
+    content: 'z z z';
+    position: absolute;
+    top: -30px;
+    right: -20px;
+    font-size: 14px;
+    color: rgba(251, 191, 36, 0.6);
+    letter-spacing: 4px;
+    animation: zzz-float 2s ease-in-out infinite;
+}
+
+@keyframes sleeping-bob {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(5px) rotate(2deg); }
+}
+
+@keyframes zzz-float {
+    0%, 100% { opacity: 0.4; transform: translateY(0); }
+    50% { opacity: 0.8; transform: translateY(-8px); }
+}
+
+/* Show character when active */
+#pika-character.active {
+    opacity: 1;
+}
+
+#pika-character.speaking .pika-avatar {
+    animation: none;
+}
+
+#pika-character.speaking .pika-avatar::after {
+    content: '';
+    position: absolute;
+    inset: -20px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(251, 191, 36, 0.1) 0%, transparent 70%);
+    animation: pulse-glow 1s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+    0%, 100% { transform: scale(1); opacity: 0.5; }
+    50% { transform: scale(1.1); opacity: 1; }
 }

@@ -171,6 +171,7 @@ func (s *Service) ProcessCommand(text string) (*ResponsePayload, []Action, error
 
 	// Get upcoming calendar events
 	var calendarEvents []string
+	log.Printf("Calendar check: calendar=%v, initialized=%v", s.calendar != nil, s.calendar != nil && s.calendar.IsInitialized())
 	if s.calendar != nil && s.calendar.IsInitialized() {
 		events, err := s.calendar.ListEvents(ctx)
 		if err != nil {
@@ -344,18 +345,74 @@ func (s *Service) ProcessCommandStream(text string, onChunk StreamCallback) (*Re
 
 // ProcessCommandWithHistory processes with conversation history
 func (s *Service) ProcessCommandWithHistory(text string, history []openai.ChatCompletionMessage) (*ResponsePayload, []Action, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// Get relevant memories
-	memories, err := s.memory.SearchRelevant(ctx, text, 5)
+	// Get relevant memories using vector similarity search
+	var memories []string
+
+	// Generate embedding for the query to enable semantic search
+	queryEmbedding, err := s.GenerateEmbedding(ctx, text)
 	if err != nil {
-		log.Printf("Failed to fetch memories: %v", err)
-		memories = []string{}
+		log.Printf("Failed to generate query embedding, falling back to keyword search: %v", err)
+		memories, _ = s.memory.SearchRelevant(ctx, text, 5)
+	} else {
+		// Use vector similarity search for semantic matching
+		vectorResults, err := s.memory.SearchByVector(ctx, queryEmbedding, 5)
+		if err != nil {
+			log.Printf("Vector search failed, falling back to keyword search: %v", err)
+			memories, _ = s.memory.SearchRelevant(ctx, text, 5)
+		} else {
+			for _, m := range vectorResults {
+				memories = append(memories, m.Content)
+			}
+			log.Printf("Vector search returned %d results", len(memories))
+		}
+	}
+
+	// Also get top important memories (ensures personal info is always included)
+	topMemories, err := s.memory.GetTopImportant(ctx, 5)
+	if err != nil {
+		log.Printf("Failed to fetch top memories: %v", err)
+	} else {
+		seen := make(map[string]bool)
+		for _, m := range memories {
+			seen[m] = true
+		}
+		for _, m := range topMemories {
+			if !seen[m.Content] {
+				memories = append(memories, m.Content)
+				seen[m.Content] = true
+			}
+		}
+	}
+
+	log.Printf("Memory context: %d memories loaded", len(memories))
+
+	// Get upcoming calendar events
+	var calendarEvents []string
+	if s.calendar != nil && s.calendar.IsInitialized() {
+		events, err := s.calendar.ListEvents(ctx)
+		if err != nil {
+			log.Printf("Failed to fetch calendar events: %v", err)
+		} else {
+			for _, e := range events {
+				if len(calendarEvents) >= 10 {
+					break
+				}
+				eventStr := fmt.Sprintf("%s: %s", e.StartTime.Local().Format("Mon Jan 2 3:04 PM"), e.Title)
+				if e.Location != "" {
+					eventStr += " at " + e.Location
+				}
+				calendarEvents = append(calendarEvents, eventStr)
+			}
+			log.Printf("Calendar context: %d events loaded", len(calendarEvents))
+		}
 	}
 
 	// Build system prompt
 	currentTime := time.Now().Format("Monday, January 2, 2006 3:04 PM MST")
-	systemPrompt := BuildPromptWithContext(memories, nil, currentTime)
+	systemPrompt := BuildPromptWithContext(memories, calendarEvents, currentTime)
 
 	// Build messages with history
 	messages := []openai.ChatCompletionMessage{
