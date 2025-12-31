@@ -44,16 +44,6 @@ PIKA is a native macOS application that lets you interact with AI using your voi
 
 3. Extract the zip and drag `PIKA.app` to your Applications folder
 
-### First Launch
-
-Since PIKA is not signed with an Apple Developer certificate, macOS will block it by default:
-
-1. Right-click (or Control-click) on `PIKA.app`
-2. Select **"Open"** from the context menu
-3. Click **"Open"** in the dialog that appears
-
-You only need to do this once. After that, you can open PIKA normally.
-
 ### Lite Version: Install Ollama
 
 If you downloaded the lite version, install Ollama for the memory/embedding system:
@@ -221,13 +211,6 @@ pika/
 - **No telemetry**: PIKA does not collect usage data
 
 ## Troubleshooting
-
-### "App is damaged and can't be opened"
-
-Run this command to remove the quarantine flag:
-```bash
-xattr -cr /Applications/PIKA.app
-```
 
 ### Microphone not working
 
