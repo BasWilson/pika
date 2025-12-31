@@ -85,8 +85,9 @@ jobs:
 
           echo "Signing with identity: $IDENTITY"
 
-          # Sign the app with hardened runtime
+          # Sign the app with hardened runtime and entitlements
           codesign --force --deep --options runtime \
+            --entitlements build/darwin/entitlements.plist \
             --sign "$IDENTITY" \
             --keychain build.keychain \
             build/bin/PIKA.app
@@ -156,8 +157,9 @@ jobs:
             --keychain build.keychain \
             build/bin/PIKA.app/Contents/Resources/ollama/ollama
 
-          # Re-sign the entire app
+          # Re-sign the entire app with entitlements
           codesign --force --deep --options runtime \
+            --entitlements build/darwin/entitlements.plist \
             --sign "$IDENTITY" \
             --keychain build.keychain \
             build/bin/PIKA.app
