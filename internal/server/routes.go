@@ -117,6 +117,11 @@ func (s *Server) handleMessage(client *ws.Client, msg *ws.Message) {
 
 // handleCommand processes voice commands
 func (s *Server) handleCommand(client *ws.Client, msg *ws.Message) {
+	// Record user activity for idle nudge tracking
+	if s.nudgeScheduler != nil {
+		s.nudgeScheduler.RecordActivity()
+	}
+
 	cmd, err := msg.ParseCommand()
 	if err != nil {
 		log.Printf("Failed to parse command: %v", err)

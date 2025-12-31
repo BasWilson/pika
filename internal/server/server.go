@@ -14,6 +14,7 @@ import (
 	"github.com/baswilson/pika/internal/config"
 	"github.com/baswilson/pika/internal/database"
 	"github.com/baswilson/pika/internal/memory"
+	"github.com/baswilson/pika/internal/nudge"
 	"github.com/baswilson/pika/internal/reminder"
 	"github.com/baswilson/pika/internal/ws"
 	"github.com/go-chi/chi/v5"
@@ -31,6 +32,7 @@ type Server struct {
 	calendar          *calendar.Service
 	reminder          *reminder.Store
 	reminderScheduler *reminder.Scheduler
+	nudgeScheduler    *nudge.Scheduler
 	actions           *actions.Registry
 	webFS             fs.FS
 }
@@ -127,6 +129,17 @@ func New(cfg *config.Config, webFS fs.FS) (*Server, error) {
 	// Start reminder scheduler
 	reminderScheduler.Start()
 
+	// Create nudge scheduler for idle user engagement
+	nudgeScheduler := nudge.NewScheduler()
+	nudgeScheduler.SetCallback(func(message, emotion string) {
+		responseMsg, err := ws.NewResponse(message, emotion)
+		if err == nil {
+			hub.BroadcastMessage(responseMsg)
+			log.Printf("Nudge sent: %s", message)
+		}
+	})
+	nudgeScheduler.Start()
+
 	// Create server
 	s := &Server{
 		config:            cfg,
@@ -139,6 +152,7 @@ func New(cfg *config.Config, webFS fs.FS) (*Server, error) {
 		calendar:          calendarService,
 		reminder:          reminderStore,
 		reminderScheduler: reminderScheduler,
+		nudgeScheduler:    nudgeScheduler,
 		actions:           actionsRegistry,
 		webFS:             webFS,
 	}
@@ -164,6 +178,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.reminderScheduler.Stop()
 	}
 
+	// Stop nudge scheduler
+	if s.nudgeScheduler != nil {
+		s.nudgeScheduler.Stop()
+	}
+
 	if s.dbDriver != nil {
 		if err := s.dbDriver.Close(); err != nil {
 			return fmt.Errorf("failed to close database: %w", err)
@@ -175,6 +194,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // Hub returns the WebSocket hub
 func (s *Server) Hub() *ws.Hub {
 	return s.hub
+}
+
+// NudgeScheduler returns the nudge scheduler for activity tracking
+func (s *Server) NudgeScheduler() *nudge.Scheduler {
+	return s.nudgeScheduler
 }
 
 // BroadcastTrigger sends a trigger to all connected clients
