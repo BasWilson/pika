@@ -412,9 +412,28 @@ class PikaSpeech {
         }
     }
 
-    start() {
+    // Request microphone permission explicitly (triggers system dialog)
+    async requestMicrophonePermission() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // Stop the stream immediately - we just needed it to trigger permission
+            stream.getTracks().forEach(track => track.stop());
+            return true;
+        } catch (error) {
+            console.error('Microphone permission denied:', error);
+            this.emit('permission_denied');
+            return false;
+        }
+    }
+
+    async start() {
         if (this.recognition && !this.isListening) {
             try {
+                // Request microphone permission first (triggers system dialog if needed)
+                const hasPermission = await this.requestMicrophonePermission();
+                if (!hasPermission) {
+                    return;
+                }
                 this.recognition.start();
             } catch (error) {
                 console.error('Failed to start recognition:', error);

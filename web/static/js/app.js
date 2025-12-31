@@ -201,7 +201,7 @@ class PikaApp {
         });
 
         this.speech.on('permission_denied', () => {
-            this.addErrorMessage('Microphone access denied. Please allow microphone access.');
+            this.addErrorMessage('Microphone access denied. Please allow access in System Settings > Privacy & Security > Microphone.');
         });
 
         this.speech.on('unsupported', () => {
